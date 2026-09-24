@@ -4,7 +4,7 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240546";
+const VERSION = "202609240552";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const LIMIT_BREAK_URL = `./data/armor-limit-break.json?v=${VERSION}`;
@@ -98,6 +98,7 @@ const ELEMENT_ICONS = {
 const WEAK_ELEMENTS = ["fire", "water", "thunder", "ice", "dragon"];
 const WEAK_ORDER = { "◎": 0, "○": 1, "▲": 2, "×": 3, "無効": 4 };
 const WEAK_TITLES = { "◎": "とても有効", "○": "有効", "▲": "やや有効", "×": "効きにくい", "無効": "無効" };
+const STAGE_COLORS = { "隔ての砂原": "#e0b060", "緋の森": "#e0706a", "油涌き谷": "#c98a4a", "氷霧の断崖": "#8fd0f0", "竜都の跡形": "#9f8fe0" };
 const SLOT_MARKS = ["", "①", "②", "③", "④"];
 
 const app = document.querySelector("#app");
@@ -115,6 +116,7 @@ const idx = {
   decos: new Map(),
   weaponTypes: new Map(),
   usage: new Map(),
+  stages: new Map(),
 };
 
 let store = loadStore();
@@ -126,7 +128,7 @@ const filters = {
   charms: { q: "", wantedOnly: false, limit: PAGE_SIZE },
   decos: { on: "", lv: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
   items: { group: "category", cat: "", hr: "", rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
-  monsters: { id: "", rank: "high", q: "", view: "drop" },
+  monsters: { id: "", rank: "high", q: "", view: "drop", map: "" },
   artian: { kind: "", q: "" },
   list: { hideDone: false },
 };
@@ -162,6 +164,7 @@ async function init() {
 function buildIndex() {
   data.items.forEach((item) => idx.items.set(item.id, item));
   data.monsters.forEach((monster) => idx.monsters.set(monster.id, monster));
+  (data.stages || []).forEach((stage) => idx.stages.set(stage.id, stage));
   data.weaponTypes.forEach((type) => idx.weaponTypes.set(type.id, type.n));
   data.weapons.forEach((weapon) => idx.weapons.set(weapon.id, weapon));
   data.armor.forEach((set) => set.pc.forEach((piece) => idx.pieces.set(piece.id, { ...piece, set })));
@@ -591,6 +594,12 @@ function onInput(event) {
   }
   if ("simSearch" in field.dataset || field.dataset.simPickType !== undefined) {
     renderSimPickList();
+    return;
+  }
+  if ("monsterMap" in field.dataset) {
+    filters.monsters.map = field.value;
+    const list = app.querySelector("[data-role='monster-chips']");
+    if (list) list.innerHTML = monsterChips();
     return;
   }
   if ("monsterFilter" in field.dataset) {
@@ -1143,6 +1152,7 @@ function monsterCard({ monster, needs, people }) {
     <article class="card mh-card">
       <div class="card-body">
         <div class="mh-card-head"><h3>${escapeHtml(monster?.n || "不明")}</h3><span class="pill purple">${people}人</span></div>
+        ${monster?.loc?.length ? `<div class="mh-stage-row">${stagePills(monster.loc, true)}</div>` : ""}
         <ul class="mh-need-people">
           ${needs.map(({ profile: entry, row }) => `<li><b>${escapeHtml(entry.name)}</b>：${itemLabel(row.item)} ×${row.remain}</li>`).join("")}
         </ul>
@@ -1604,6 +1614,7 @@ function itemCard(item, need) {
         </div>
         ${need ? `<div class="mh-need-chip ${need.remain === 0 ? "is-done" : ""}">必要 ${need.need} ／ 所持 ${need.owned} ／ 残り ${need.remain}</div>` : ""}
         ${item.d ? `<p class="mh-desc">${escapeHtml(item.d)}</p>` : ""}
+        ${itemStageIds(item).length ? `<div class="mh-src-block"><div class="mh-label">行くマップ（落とすモンスターの出現マップ）</div><div class="mh-stage-row">${stagePills(itemStageIds(item))}</div></div>` : ""}
         <div class="mh-src-block"><div class="mh-label">入手先</div>${sourceList(item, 8)}</div>
         ${usage.length ? `
           <details class="mh-details">
@@ -1639,6 +1650,12 @@ function renderMonsterPanel() {
       <button type="button" class="mh-btn small" data-action="monster-view" data-view="weak">弱点早見表</button>
     </div>
     <div class="mh-controls">
+      <label class="mh-field"><span>マップ</span>
+        <select data-monster-map>
+          <option value="">すべて</option>
+          ${(data.stages || []).map((stage) => `<option value="${stage.id}" ${f.map === stage.id ? "selected" : ""}>${escapeHtml(stage.n)}</option>`).join("")}
+        </select>
+      </label>
       <label class="mh-field grow"><span>モンスター検索</span><input class="mh-input" type="search" data-monster-filter value="${escapeHtml(f.q)}" placeholder="モンスター名・種族・素材名で検索" /></label>
     </div>
     <div class="mh-monster-chips" data-role="monster-chips">${monsterChips()}</div>
@@ -1649,7 +1666,8 @@ function renderMonsterPanel() {
 function monsterChips() {
   const f = filters.monsters;
   const list = data.monsters
-    .filter((monster) => matches(f.q, [monster.n, monster.sp, monster.rw.map((reward) => idx.items.get(reward[0])?.n).join(" ")]))
+    .filter((monster) => (!f.map || (monster.loc || []).includes(f.map))
+      && matches(f.q, [monster.n, monster.sp, (monster.loc || []).map((id) => idx.stages.get(id)?.n).join(" "), monster.rw.map((reward) => idx.items.get(reward[0])?.n).join(" ")]))
     ;
   if (!list.length) return `<div class="empty">該当するモンスターがいません。</div>`;
   return list.map((monster) => `
@@ -1692,6 +1710,7 @@ function monsterDetail(monster) {
         <div>
           <h2>${escapeHtml(monster.n)}</h2>
           <div class="meta-row"><span class="pill">${escapeHtml(monster.sp)}</span>${monster.tmp ? `<span class="pill purple">歴戦の個体あり</span>` : ""}</div>
+          ${monster.loc?.length ? `<div class="mh-stage-row mh-monster-stages"><span class="mh-label">出現マップ</span>${stagePills(monster.loc)}</div>` : ""}
         </div>
       </div>
       ${weaknessChart(monster)}
@@ -1781,7 +1800,7 @@ function weaknessTable() {
       <p class="mh-note">モンスター名を押すと、そのモンスターのドロップ一覧を開きます。◎とても有効　○有効　▲やや有効　×効きにくい</p>
       <div class="table-wrap">
         <table class="mh-table mh-weak-table">
-          <thead><tr><th>モンスター</th>${WEAK_ELEMENTS.map((el) => `<th>${elementIcon(el)}</th>`).join("")}</tr></thead>
+          <thead><tr><th>モンスター</th>${WEAK_ELEMENTS.map((el) => `<th>${elementIcon(el)}</th>`).join("")}<th class="mh-weak-map">出現マップ</th></tr></thead>
           <tbody>
             ${data.monsters.map((monster) => {
               const chart = weaknessOf(monster);
@@ -1789,6 +1808,7 @@ function weaknessTable() {
               return `<tr>
                 <td><button type="button" class="mh-weak-name" data-action="monster-open" data-id="${monster.id}">${monsterEmblem(monster)}<span>${escapeHtml(monster.n)}${note ? `<small>※${escapeHtml(note)}</small>` : ""}</span></button></td>
                 ${WEAK_ELEMENTS.map((el) => `<td class="mh-weak-td">${chart ? weakMark(chart[el]) : `<span class="mh-muted">-</span>`}</td>`).join("")}
+                <td class="mh-weak-map"><div class="mh-stage-row">${stagePills(monster.loc || [], true)}</div></td>
               </tr>`;
             }).join("")}
           </tbody>
@@ -2692,6 +2712,19 @@ function itemLabel(item) {
   return `<span class="mh-item" title="${escapeHtml(item.d || "")}"><i class="mh-dot" style="--dot:${color}"></i>${escapeHtml(item.n)}</span>`;
 }
 
+// マップの小さなラベル
+function stagePills(stageIds, small = false) {
+  const stages = (data.stages || []).filter((stage) => stageIds.includes(stage.id));
+  return stages.map((stage) => `<span class="mh-stage ${small ? "small" : ""}" style="--stage:${STAGE_COLORS[stage.n] || "#9aa39c"}">${escapeHtml(stage.n)}</span>`).join("");
+}
+
+// 素材を落とすモンスターの出現マップ（重複なし）
+function itemStageIds(item) {
+  const ids = new Set();
+  (item?.src || []).forEach(([monsterId]) => (idx.monsters.get(monsterId)?.loc || []).forEach((id) => ids.add(id)));
+  return [...ids];
+}
+
 function sourceList(item, max) {
   const sources = item?.src || [];
   if (!sources.length) return `<span class="mh-muted">採取・交易・調査報酬など</span>`;
@@ -2700,7 +2733,8 @@ function sourceList(item, max) {
     <ul class="mh-sources">
       ${shown.map(([monsterId, rank, kinds, chance]) => `
         <li><b>${escapeHtml(idx.monsters.get(monsterId)?.n || "?")}</b> <span class="mh-rank ${rank}">${RANK_LABELS[rank] || rank}</span>
-        <span class="mh-muted">${kinds.map((kind) => SOURCE_LABELS[kind] || kind).join("・")} 最大${chance}%</span></li>`).join("")}
+        <span class="mh-muted">${kinds.map((kind) => SOURCE_LABELS[kind] || kind).join("・")} 最大${chance}%</span>
+        <span class="mh-stage-row">${stagePills(idx.monsters.get(monsterId)?.loc || [], true)}</span></li>`).join("")}
       ${sources.length > shown.length ? `<li class="mh-muted">ほか${sources.length - shown.length}件</li>` : ""}
     </ul>
   `;

@@ -1506,3 +1506,53 @@
     display: none;
   }
 }
+
+/* マップ */
+.mh-stage-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.mh-stage {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--stage) 60%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--stage);
+  background: color-mix(in srgb, var(--stage) 12%, transparent);
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.mh-stage.small {
+  padding: 0 6px;
+  font-size: 0.68rem;
+}
+
+.mh-sources .mh-stage-row {
+  margin-left: 4px;
+}
+
+.mh-monster-stages {
+  margin-top: 8px;
+}
+
+.mh-monster-stages .mh-label {
+  margin: 0 4px 0 0;
+}
+
+.mh-weak-table th.mh-weak-map,
+.mh-weak-table td.mh-weak-map {
+  width: auto;
+  text-align: left;
+}
+
+@media (max-width: 520px) {
+  .mh-weak-table .mh-weak-map {
+    display: none;
+  }
+}

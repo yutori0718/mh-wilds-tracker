@@ -215,6 +215,7 @@ def main():
             "sp": species.get(m.get("species"), "その他"),
             "tmp": any(v.get("kind") == "tempered" for v in m.get("variants") or []),
             "wk": weak,
+            "loc": [str(loc) for loc in m.get("locations") or []],
             "rw": [[str(rw["item_id"]), rw["rank"], rw["kind"], rw.get("amount") or 1, rw.get("chance") or 0]
                    for rw in m.get("rewards") or []],
         })
@@ -269,7 +270,14 @@ def main():
             prev = st["level"]
         upgrades[str(u["rarity"])] = {"steps": steps, "lb": lb}
 
+    # マップ（ゲームの進行順）
+    stage_order = ["隔ての砂原", "緋の森", "油涌き谷", "氷霧の断崖", "竜都の跡形"]
+    stages = [{"id": str(st["game_id"]), "n": ja(st["names"]), "areas": st.get("areas"),
+               "camps": [ja(c["names"]) for c in st.get("camps") or []]} for st in load("Stage.json")]
+    stages.sort(key=lambda st: stage_order.index(st["n"]) if st["n"] in stage_order else len(stage_order))
+
     data = {
+        "stages": stages,
         "armorUpgrades": upgrades,
         "materialCategories": [{"id": key, "n": name} for key, name, _ in MATERIAL_CATEGORIES],
         "source": "MHDB (https://github.com/LartTyler/mhdb-wilds-data)",
