@@ -4,7 +4,7 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240523";
+const VERSION = "202609240529";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const STORAGE_KEY = "mh-wilds-tracker-v1";
@@ -59,6 +59,24 @@ const ITEM_COLORS = {
   "moss-green": "#6d7d3b", lemon: "#f5f07a", emerald: "#1fbf8f",
 };
 const ELEMENT_ORDER = ["fire", "water", "thunder", "ice", "dragon", "poison", "paralysis", "sleep", "blastblight", "none"];
+const SPECIES_ICONS = {
+  "飛竜種": `<path d="M22 31 L5 9 L14 13 L17 5 L24 15 L30 27 Z M34 29 L39 5 L45 13 L55 9 L49 30 Z"/><ellipse cx="30" cy="37" rx="14" ry="8"/><path d="M40 33 Q47 25 54 24 L61 27 L55 30 Q49 33 45 39 Z"/><path d="M18 37 Q8 42 2 52 Q12 47 21 43 Z"/><path d="M24 42 L22 54 L27 54 L29 43 Z M34 42 L36 54 L41 54 L39 42 Z"/>`,
+  "牙獣種": `<ellipse cx="28" cy="34" rx="18" ry="12"/><circle cx="48" cy="27" r="9"/><path d="M42 20 L44 12 L48 19 Z M50 19 L55 12 L55 21 Z"/><path d="M53 29 L61 31 L54 34 Z"/><path d="M13 40 L11 54 L18 54 L19 42 Z M22 43 L22 54 L29 54 L29 44 Z M34 43 L35 54 L42 54 L40 42 Z M42 38 L46 54 L53 54 L48 36 Z"/><path d="M11 30 Q4 26 3 18 Q9 25 14 27 Z"/>`,
+  "鳥竜種": `<ellipse cx="28" cy="36" rx="13" ry="9" transform="rotate(-15 28 36)"/><path d="M36 30 Q40 18 46 14 L50 17 Q44 22 42 33 Z"/><path d="M44 12 L60 16 L47 19 Z"/><path d="M45 13 L40 3 L50 10 Z"/><path d="M26 44 L24 56 L20 58 L28 58 L28 45 Z M32 43 L34 56 L31 58 L38 58 L35 43 Z"/><path d="M16 38 Q6 40 2 34 Q8 34 16 33 Z"/><path d="M22 29 L10 20 L16 30 Z"/>`,
+  "海竜種": `<path d="M4 44 Q12 30 22 38 Q30 46 38 34 Q44 24 52 24 L60 27 L54 31 Q48 31 44 38 Q34 54 22 46 Q14 40 8 48 Z"/><path d="M24 38 L20 28 L30 36 Z M40 30 L38 20 L46 26 Z"/><path d="M50 23 L48 14 L55 22 Z"/><path d="M26 46 L24 54 L30 47 Z"/>`,
+  "獣竜種": `<path d="M20 30 Q28 22 40 24 L50 16 L62 18 L60 26 L50 28 Q48 36 42 40 L22 42 Q14 40 12 36 Z"/><path d="M12 34 Q4 36 2 46 Q10 40 16 40 Z"/><path d="M40 32 L46 36 L43 38 Z"/><path d="M24 40 L20 56 L28 56 L30 42 Z M34 40 L36 56 L44 56 L40 40 Z"/><path d="M52 16 L54 10 L57 17 Z"/>`,
+  "両生種": `<ellipse cx="32" cy="38" rx="20" ry="12"/><circle cx="24" cy="26" r="6"/><circle cx="40" cy="26" r="6"/><path d="M12 42 L4 54 L16 52 L18 46 Z M52 42 L60 54 L48 52 L46 46 Z"/><path d="M20 48 L16 58 L26 56 Z M44 48 L48 58 L38 56 Z"/><path d="M50 34 Q60 30 62 22 Q58 32 50 38 Z"/>`,
+  "鋏角種": `<ellipse cx="22" cy="34" rx="12" ry="10"/><ellipse cx="40" cy="34" rx="8" ry="6"/><circle cx="50" cy="32" r="4"/><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M36 30 L32 16 L24 10"/><path d="M40 30 L42 14 L50 8"/><path d="M36 38 L30 50 L22 56"/><path d="M40 38 L44 50 L50 58"/><path d="M44 30 L52 18 L60 16"/><path d="M44 38 L54 46 L60 52"/><path d="M52 32 L60 34"/></g>`,
+  "頭足種": `<path d="M14 30 Q14 10 32 10 Q50 10 50 30 Q50 38 44 40 L20 40 Q14 38 14 30 Z"/><circle cx="26" cy="28" r="3" fill="#000" fill-opacity=".35"/><circle cx="38" cy="28" r="3" fill="#000" fill-opacity=".35"/><g fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"><path d="M20 40 Q12 48 6 46"/><path d="M26 40 Q24 52 16 56"/><path d="M32 40 Q32 52 30 60"/><path d="M38 40 Q40 52 48 56"/><path d="M44 40 Q52 48 58 46"/></g>`,
+  "造竜種": `<path d="M8 38 L22 24 L36 22 L50 14 L60 20 L56 28 L46 30 L42 40 L30 46 L16 46 Z"/><path d="M50 14 L52 6 L56 16 Z M44 17 L44 8 L49 16 Z"/><path d="M22 24 L24 12 L30 23 Z M30 23 L34 10 L37 22 Z"/><path d="M24 46 L22 58 L28 58 L30 46 Z M36 44 L38 58 L44 58 L41 42 Z"/><path d="M8 38 L2 50 L14 44 Z"/><path d="M32 30 L38 34 L32 38 L26 34 Z" fill="#000" fill-opacity=".3"/>`,
+  "亜龍種": `<path d="M32 12 Q40 14 42 22 L58 14 L54 26 L62 30 L50 34 L46 50 L38 42 L32 56 L26 42 L18 50 L14 34 L2 30 L10 26 L6 14 L22 22 Q24 14 32 12 Z"/><path d="M28 14 L24 4 L31 12 Z M36 14 L40 4 L33 12 Z"/>`,
+  "古龍種": `<path d="M18 30 L4 10 L14 14 L18 6 L24 16 L30 26 Z M36 26 L42 6 L48 14 L58 12 L50 30 Z"/><ellipse cx="30" cy="38" rx="15" ry="8"/><path d="M42 34 Q48 26 54 26 L62 28 L56 32 Q50 34 46 40 Z"/><path d="M54 26 L52 16 L58 24 Z M50 26 L46 17 L53 24 Z"/><path d="M16 38 Q6 44 2 56 Q12 48 20 44 Z"/><path d="M20 42 L18 54 L23 54 L25 44 Z M28 44 L28 56 L33 56 L33 45 Z M36 43 L38 55 L43 55 L41 42 Z"/>`,
+  "その他": `<path d="M32 4 L56 18 L56 46 L32 60 L8 46 L8 18 Z"/><circle cx="32" cy="32" r="11" fill="#000" fill-opacity=".35"/><circle cx="32" cy="32" r="5"/><path d="M32 4 L32 14 M56 18 L47 23 M56 46 L47 41 M32 60 L32 50 M8 46 L17 41 M8 18 L17 23" stroke="#000" stroke-opacity=".35" stroke-width="2"/>`,
+};
+const SPECIES_HUES = {
+  "飛竜種": 8, "牙獣種": 30, "鳥竜種": 300, "海竜種": 200, "獣竜種": 20, "両生種": 95,
+  "鋏角種": 330, "頭足種": 265, "造竜種": 170, "亜龍種": 280, "古龍種": 45, "その他": 210,
+};
 const SLOT_MARKS = ["", "①", "②", "③", "④"];
 
 const app = document.querySelector("#app");
@@ -81,10 +99,10 @@ let currentTab = "list";
 let pendingImport = null;
 const filters = {
   weapons: { type: "great-sword", group: "tree", mon: "", el: "", rarity: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
-  armor: { rarity: "", q: "", wantedOnly: false, limit: 30 },
+  armor: { hr: "", rarity: "", q: "", wantedOnly: false, limit: 40 },
   charms: { q: "", wantedOnly: false, limit: PAGE_SIZE },
   decos: { on: "", lv: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
-  items: { group: "category", cat: "", rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
+  items: { group: "category", cat: "", hr: "", rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
   monsters: { id: "", rank: "high", q: "" },
   artian: { kind: "", q: "" },
   list: { hideDone: false },
@@ -507,7 +525,7 @@ function onInput(event) {
   if (field.dataset.filter) {
     const tabFilters = filters[currentTab];
     tabFilters[field.dataset.filter] = field.type === "checkbox" ? field.checked : field.value;
-    tabFilters.limit = currentTab === "armor" ? 30 : PAGE_SIZE;
+    tabFilters.limit = currentTab === "armor" ? 40 : PAGE_SIZE;
     renderResults();
     return;
   }
@@ -761,6 +779,33 @@ function sortByGroup(list, rankOf) {
   return list.map((entry, index) => ({ entry, index, rank: rankOf(entry) }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ entry }) => entry);
+}
+
+// 下位/上位: 防具はレア度1〜4が下位。素材は落とすモンスターのランク、無ければレア度（4以下が下位）で判定
+function armorRankOf(set) {
+  return set.r <= 4 ? "low" : "high";
+}
+
+function itemRanks(item) {
+  const ranks = new Set((item.src || []).map((source) => source[1]));
+  if (!ranks.size) ranks.add(item.r <= 4 ? "low" : "high");
+  return ["low", "high"].filter((rank) => ranks.has(rank));
+}
+
+function rankBadges(ranks) {
+  return ranks.map((rank) => `<span class="mh-rank ${rank}">${RANK_LABELS[rank]}</span>`).join("");
+}
+
+function rankFilter(value) {
+  return `
+    <label class="mh-field"><span>ランク</span>
+      <select data-filter="hr">
+        <option value="">すべて</option>
+        <option value="low" ${value === "low" ? "selected" : ""}>下位</option>
+        <option value="high" ${value === "high" ? "selected" : ""}>上位</option>
+      </select>
+    </label>
+  `;
 }
 
 function monsterRank(monsterId) {
@@ -1071,6 +1116,7 @@ function weaponCard(weapon) {
 function armorControls() {
   const f = filters.armor;
   return `
+    ${rankFilter(f.hr)}
     ${rarityFilter(f.rarity)}
     ${searchField(f.q, "防具名・スキル・素材名で検索")}
     ${wantedOnlyField(f.wantedOnly)}
@@ -1081,10 +1127,15 @@ function armorResults() {
   const f = filters.armor;
   const target = profile();
   const list = data.armor.filter((set) =>
-    (!f.rarity || String(set.r) === f.rarity)
+    (!f.hr || armorRankOf(set) === f.hr)
+    && (!f.rarity || String(set.r) === f.rarity)
     && (!f.wantedOnly || set.pc.some((piece) => target.wants[`a:${piece.id}`]))
     && matches(f.q, [set.n, ...set.pc.map((piece) => `${piece.n} ${skillText(piece.sk)} ${materialText(piece.in)}`)]));
-  return paged(list, armorCard, "mh-cards wide");
+  const sorted = sortByGroup(list, (set) => (armorRankOf(set) === "low" ? 0 : 1));
+  return pagedGrouped(sorted, armorCard, (set) => {
+    const rank = armorRankOf(set);
+    return { key: rank, label: `${RANK_LABELS[rank]}の防具（レア度${rank === "low" ? "1〜4" : "5〜8"}）` };
+  }, "mh-cards wide");
 }
 
 function armorCard(set) {
@@ -1094,7 +1145,7 @@ function armorCard(set) {
       <div class="card-body">
         <div class="mh-card-head">
           <div>
-            <div class="meta-row">${rarityPill(set.r)}</div>
+            <div class="meta-row">${rankBadges([armorRankOf(set)])}${rarityPill(set.r)}</div>
             <h3>${escapeHtml(set.n)}</h3>
           </div>
           <button type="button" class="mh-btn small" data-action="want-set" data-keys="${pieces.map((piece) => `a:${piece.id}`).join(",")}">全部位を欲しい</button>
@@ -1243,6 +1294,7 @@ function itemControls() {
         </optgroup>
       </select>
     </label>
+    ${rankFilter(f.hr)}
     ${rarityFilter(f.rarity)}
     ${searchField(f.q, "素材名・モンスター名で検索")}
     <label class="mh-check"><input type="checkbox" data-filter="neededOnly" ${f.neededOnly ? "checked" : ""} /> 自分に必要な素材のみ</label>
@@ -1254,12 +1306,15 @@ function itemResults() {
   const needs = new Map(computeNeeds(profile()).rows.map((row) => [row.itemId, row]));
   const list = data.items.filter((item) =>
     matchesItemCategory(item, f.cat)
+    && (!f.hr || itemRanks(item).includes(f.hr))
     && (!f.rarity || String(item.r) === f.rarity)
     && (!f.neededOnly || needs.has(item.id))
     && matches(f.q, [item.n, itemGroup(item).label, (item.src || []).map((source) => idx.monsters.get(source[0])?.n).join(" ")]));
   const render = (item) => itemCard(item, needs.get(item.id));
   if (f.group === "id") return paged(list, render);
-  return pagedGrouped(sortByGroup(list, (item) => itemGroup(item).rank), render, itemGroup);
+  // 分類の中は 下位 → 下位・上位 → 上位 の順
+  const rankOrder = (item) => { const ranks = itemRanks(item); return ranks.length > 1 ? 1 : ranks[0] === "low" ? 0 : 2; };
+  return pagedGrouped(sortByGroup(list, (item) => itemGroup(item).rank * 10 + rankOrder(item)), render, itemGroup);
 }
 
 function matchesItemCategory(item, cat) {
@@ -1287,7 +1342,7 @@ function itemCard(item, need) {
       <div class="card-body">
         <div class="mh-card-head">
           <h3>${itemLabel(item)}</h3>
-          ${rarityPill(item.r)}
+          <div class="meta-row">${rankBadges(itemRanks(item))}${rarityPill(item.r)}</div>
         </div>
         ${need ? `<div class="mh-need-chip ${need.remain === 0 ? "is-done" : ""}">必要 ${need.need} ／ 所持 ${need.owned} ／ 残り ${need.remain}</div>` : ""}
         ${item.d ? `<p class="mh-desc">${escapeHtml(item.d)}</p>` : ""}
@@ -1333,9 +1388,11 @@ function monsterChips() {
     </button>`).join("");
 }
 
+// 種族ごとのシルエット（オリジナル図案）と色でモンスターを表す
 function monsterEmblem(monster) {
-  const hue = [...monster.sp].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
-  return `<i class="mh-emblem" style="--hue:${hue}" aria-hidden="true">${escapeHtml(monster.n.replace(/^護竜/, "").slice(0, 1))}</i>`;
+  const hue = SPECIES_HUES[monster.sp] ?? [...monster.sp].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+  const icon = SPECIES_ICONS[monster.sp] || SPECIES_ICONS["その他"];
+  return `<i class="mh-emblem" style="--hue:${hue}" title="${escapeHtml(monster.sp)}" aria-hidden="true"><svg viewBox="0 0 64 64" fill="currentColor">${icon}</svg></i>`;
 }
 
 function monsterDetail(monster) {
@@ -1844,7 +1901,7 @@ function simArmorRow(build, part) {
   const piece = build.a[part] && idx.pieces.get(build.a[part]);
   let extra = "";
   if (piece) {
-    extra += `<div class="mh-sim-meta">${rarityPill(piece.set.r)} 防御 <b>${piece.def}</b>（最大${piece.dmax ?? "-"}） ${skillList(piece.sk)}</div>`;
+    extra += `<div class="mh-sim-meta">${rankBadges([armorRankOf(piece.set)])} ${rarityPill(piece.set.r)} 防御 <b>${piece.def}</b>（最大${piece.dmax ?? "-"}） ${skillList(piece.sk)}</div>`;
     extra += decoSelectors(piece.sl.map((lv) => ({ on: "armor", lv })), build.aDecos[part] || [], `adeco:${part}`);
   }
   return `<div class="mh-sim-row">${simSlotHead(PIECE_LABELS[part], piece?.n, extra, part)}</div>`;
@@ -2048,7 +2105,7 @@ function renderSimPickList() {
       .filter(({ set, piece }) => matches(q, [piece.n, set.n, skillText(piece.sk)]))
       .map(({ set, piece }) => ({
         id: piece.id,
-        html: `${rarityPill(set.r)} <b>${escapeHtml(piece.n)}</b> <span class="mh-muted">防御${piece.def} ${slotText(piece.sl)} ${escapeHtml(skillText(piece.sk, true))}</span>`,
+        html: `${rankBadges([armorRankOf(set)])} ${rarityPill(set.r)} <b>${escapeHtml(piece.n)}</b> <span class="mh-muted">防御${piece.def} ${slotText(piece.sl)} ${escapeHtml(skillText(piece.sk, true))}</span>`,
       }));
   }
   const list = dialog.querySelector("[data-role='sim-dialog-list']");

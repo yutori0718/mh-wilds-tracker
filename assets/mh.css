@@ -1230,3 +1230,19 @@
     margin-left: 0;
   }
 }
+
+.mh-emblem svg {
+  width: 74%;
+  height: 74%;
+  color: #fff;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.45));
+}
+
+.mh-group-head .mh-rank {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+}
+
+.mh-card-head .meta-row {
+  flex: 0 0 auto;
+}
