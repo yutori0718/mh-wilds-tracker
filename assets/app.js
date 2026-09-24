@@ -4,6 +4,7 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 const DATA_URL = "./data/mh-wilds.json";
+const ARTIAN_URL = "./data/gogma-artian-skills.json";
 const STORAGE_KEY = "mh-wilds-tracker-v1";
 const PAGE_SIZE = 60;
 
@@ -15,6 +16,7 @@ const TABS = [
   { id: "decos", label: "珠（装飾品）" },
   { id: "items", label: "素材" },
   { id: "monsters", label: "モンスター別ドロップ" },
+  { id: "artian", label: "巨戟アーティア" },
   { id: "party", label: "みんな" },
 ];
 
@@ -58,6 +60,7 @@ const SLOT_MARKS = ["", "①", "②", "③", "④"];
 const app = document.querySelector("#app");
 
 let data = null;
+let artian = null;
 const idx = {
   items: new Map(),
   monsters: new Map(),
@@ -79,6 +82,7 @@ const filters = {
   decos: { on: "", lv: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
   items: { rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
   monsters: { id: "", rank: "high", q: "" },
+  artian: { kind: "", q: "" },
   list: { hideDone: false },
 };
 
@@ -89,6 +93,7 @@ async function init() {
     const response = await fetch(DATA_URL);
     if (!response.ok) throw new Error(`${DATA_URL}: ${response.status}`);
     data = await response.json();
+    artian = await fetch(ARTIAN_URL).then((res) => (res.ok ? res.json() : null)).catch(() => null);
   } catch (error) {
     console.error(error);
     app.innerHTML = shell(`<div class="empty">データを読み込めませんでした。</div>`);
@@ -664,6 +669,7 @@ function renderPanel() {
     decos: () => filterPanel(decoControls()),
     items: () => filterPanel(itemControls()),
     monsters: renderMonsterPanel,
+    artian: () => filterPanel(artianControls()),
     party: renderPartyPanel,
   };
   panel.innerHTML = renderers[currentTab]();
@@ -684,6 +690,7 @@ function renderResults() {
     charms: charmResults,
     decos: decoResults,
     items: itemResults,
+    artian: artianResults,
   };
   results.innerHTML = renderers[currentTab]();
 }
@@ -1261,6 +1268,91 @@ function weaknessBlock(weaknesses) {
         return `<div><dt>${label}</dt><dd>${list.map(([, name, level]) => `<span class="mh-weak-item">${WEAKNESS_LABELS[name] || name}<span class="mh-stars">${"★".repeat(level)}</span></span>`).join("")}</dd></div>`;
       }).join("")}
     </dl>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// 巨戟アーティアタブ（武器に付くシリーズスキル・グループスキル）
+
+function artianControls() {
+  const f = filters.artian;
+  return `
+    <p class="mh-note mh-wide">巨戟アーティア武器に付くシリーズスキル・グループスキルの一覧です。<b>説明文は要約です。</b>「この防具でも発動」は同じスキルを持つ防具シリーズです。</p>
+    <label class="mh-field"><span>種類</span>
+      <select data-filter="kind">
+        <option value="">すべて</option>
+        <option value="series" ${f.kind === "series" ? "selected" : ""}>シリーズスキル（2部位／4部位）</option>
+        <option value="group" ${f.kind === "group" ? "selected" : ""}>グループスキル（3部位）</option>
+      </select>
+    </label>
+    ${searchField(f.q, "スキル名・効果で検索")}
+  `;
+}
+
+function artianResults() {
+  if (!artian) return `<div class="empty">巨戟アーティアのデータを読み込めませんでした。</div>`;
+  const f = filters.artian;
+  const series = f.kind === "group" ? [] : artian.series.filter((entry) =>
+    matches(f.q, [entry.name, entry.tag, ...entry.tiers.map((tier) => `${tier.name} ${tier.desc}`)]));
+  const groups = f.kind === "series" ? [] : artian.groups.filter((entry) =>
+    matches(f.q, [entry.name, entry.tag, entry.effect, entry.desc]));
+  if (!series.length && !groups.length) return `<div class="empty">該当するスキルがありません。</div>`;
+  return `
+    ${series.length ? `
+      <h2 class="mh-subhead">シリーズスキル <small class="mh-muted">2部位／4部位で発動・${series.length}件</small></h2>
+      <div class="mh-cards">${series.map(artianSeriesCard).join("")}</div>` : ""}
+    ${groups.length ? `
+      <h2 class="mh-subhead">グループスキル <small class="mh-muted">3部位で発動・レベルは1段階のみ・${groups.length}件</small></h2>
+      <div class="mh-cards">${groups.map(artianGroupCard).join("")}</div>` : ""}
+  `;
+}
+
+function artianSeriesCard(entry) {
+  return `
+    <article class="card mh-card">
+      <div class="card-body">
+        <div class="mh-card-head"><h3>${escapeHtml(entry.name)}</h3>${entry.tag ? `<span class="pill purple">${escapeHtml(entry.tag)}</span>` : ""}</div>
+        <dl class="mh-tiers">
+          ${entry.tiers.map((tier) => `
+            <div>
+              <dt><span class="mh-piece-count">${tier.pieces}部位</span>${escapeHtml(tier.name)}</dt>
+              <dd><span class="mh-summary-tag">要約</span>${escapeHtml(tier.desc)}</dd>
+            </div>`).join("")}
+        </dl>
+        ${armorWithSkills(entry.members || [entry.name])}
+      </div>
+    </article>
+  `;
+}
+
+function artianGroupCard(entry) {
+  return `
+    <article class="card mh-card">
+      <div class="card-body">
+        <div class="mh-card-head"><h3>${escapeHtml(entry.name)}</h3>${entry.tag ? `<span class="pill purple">${escapeHtml(entry.tag)}</span>` : ""}</div>
+        <dl class="mh-tiers">
+          <div>
+            <dt><span class="mh-piece-count">3部位</span>${escapeHtml(entry.effect)}</dt>
+            <dd><span class="mh-summary-tag">要約</span>${escapeHtml(entry.desc)}</dd>
+          </div>
+        </dl>
+        ${armorWithSkills([entry.name])}
+      </div>
+    </article>
+  `;
+}
+
+function armorWithSkills(skillNames) {
+  const ids = Object.entries(data.skills)
+    .filter(([, skill]) => (skill.k === "set" || skill.k === "group") && skillNames.includes(skill.n))
+    .map(([id]) => id);
+  const sets = data.armor.filter((set) => set.pc.some((piece) => ids.some((id) => piece.sk[id])));
+  if (!sets.length) return "";
+  return `
+    <details class="mh-details">
+      <summary>この防具でも発動（${sets.length}シリーズ）</summary>
+      <ul>${sets.map((set) => `<li>${rarityPill(set.r)} ${escapeHtml(set.n)}</li>`).join("")}</ul>
+    </details>
   `;
 }
 
