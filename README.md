@@ -34,3 +34,7 @@ python3 tools/build-mh-wilds-data.py mhdb-wilds-data/output/merged
 ```
 
 MHDB に含まれない情報（採取・交易での入手、アーティア武器の生産ボーナス等）は表示されません。
+
+## 更新を公開するとき
+
+ブラウザに古いファイルが残らないよう、`index.html` の `?v=...` と `assets/app.js` の `VERSION` を同じ新しい値（例: 日時）に変えてから push してください。

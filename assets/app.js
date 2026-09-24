@@ -3,8 +3,10 @@
 // 人ごとの設定はこのブラウザの localStorage に保存する（サーバー不要・費用0円）。
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
-const DATA_URL = "./data/mh-wilds.json";
-const ARTIAN_URL = "./data/gogma-artian-skills.json";
+// 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
+const VERSION = "202609240523";
+const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
+const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const STORAGE_KEY = "mh-wilds-tracker-v1";
 const PAGE_SIZE = 60;
 
