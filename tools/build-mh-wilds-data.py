@@ -11,6 +11,16 @@ from pathlib import Path
 SRC = Path(sys.argv[1] if len(sys.argv) > 1 else "mhdb-wilds-data/output/merged")
 OUT = Path(__file__).resolve().parent.parent / "data" / "mh-wilds.json"
 
+# ハンターノート（大型モンスター）の並び順。ここに無いモンスターは末尾に並ぶ。
+HUNTER_NOTES_ORDER = [
+    "チャタカブラ", "ケマトリス", "ラバラ・バリナ", "ババコンガ", "バーラハーラ", "ドシャグマ",
+    "ウズ・トゥナ", "ププロポル", "レ・ダウ", "ネルスキュラ", "ヒラバミ", "アジャラカン",
+    "ヌ・エグドラ", "護竜ドシャグマ", "護竜リオレウス", "ジン・ダハド", "シーウー", "護竜オドガロン亜種",
+    "ゾ・シア", "リオレイア", "リオレウス", "イャンクック", "ゲリョス", "ゴア・マガラ",
+    "護竜アンジャナフ亜種", "グラビモス", "ドドブランゴ", "アルシュベルド", "護竜アルシュベルド",
+    "タマミツネ", "ラギアクルス", "セルレギオス", "オメガ・プラネテス", "ゴグマジオス",
+]
+
 WEAPON_FILES = [
     ("GreatSword", "great-sword", "大剣"),
     ("LongSword", "long-sword", "太刀"),
@@ -72,6 +82,8 @@ def main():
                 "sk": skills(w.get("skills")),
                 "z": c.get("zenny_cost") or 0,
                 "in": inputs(c.get("inputs")),
+                # アーティア等のツリー外の武器（素材なし・初期武器以外）は末尾へ
+                "_sort": (not c.get("inputs") and w["game_id"] != 1, c.get("row") or 0, c.get("column") or 0, w["game_id"]),
             }
             if c.get("previous_id") is not None:
                 entry["prev"] = f"{kind}:{c['previous_id']}"
@@ -81,6 +93,10 @@ def main():
             used_items.update(entry["in"])
             used_skills.update(entry["sk"])
             weapons.append(entry)
+
+    # 武器は工房の派生ツリーと同じ順（武器種ごとに 行 → 列）
+    type_order = {kind: i for i, (_, kind, _) in enumerate(WEAPON_FILES)}
+    weapons.sort(key=lambda w: (type_order[w["t"]], w.pop("_sort")))
 
     # 防具
     armor = []
@@ -101,7 +117,10 @@ def main():
             used_items.update(piece["in"])
             used_skills.update(piece["sk"])
             pieces.append(piece)
-        armor.append({"id": str(s["game_id"]), "n": ja(s["names"]), "r": s["rarity"], "pc": pieces})
+        armor.append({"id": str(s["game_id"]), "n": ja(s["names"]), "r": s["rarity"], "pc": pieces,
+                      "_sort": (s.get("model_id") or 0, s["rarity"], ja(s["names"]))})
+    # 防具はゲーム内のシリーズ（モデル）番号順 → 下位/上位（レア度）順
+    armor.sort(key=lambda s: s.pop("_sort"))
 
     # 護石
     charms = []
@@ -183,6 +202,11 @@ def main():
                 for (mid, rank), v in sorted(src.items(), key=lambda kv: (kv[0][1] != "high", -kv[1]["c"]))
             ]
         items.append(entry)
+
+    # 素材はゲーム内のアイテムID順（アイテムボックスの並び）
+    items.sort(key=lambda i: int(i["id"]))
+    notes = {name: i for i, name in enumerate(HUNTER_NOTES_ORDER)}
+    monsters.sort(key=lambda m: notes.get(m["n"], len(notes)))
 
     missing = used_items - {i["id"] for i in items}
     if missing:

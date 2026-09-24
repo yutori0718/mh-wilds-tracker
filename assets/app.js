@@ -1164,12 +1164,12 @@ function monsterChips() {
   const f = filters.monsters;
   const list = data.monsters
     .filter((monster) => matches(f.q, [monster.n, monster.sp, monster.rw.map((reward) => idx.items.get(reward[0])?.n).join(" ")]))
-    .sort((a, b) => a.sp.localeCompare(b.sp, "ja") || a.n.localeCompare(b.n, "ja"));
+    ;
   if (!list.length) return `<div class="empty">該当するモンスターがいません。</div>`;
   return list.map((monster) => `
     <button type="button" class="mh-monster-chip" data-action="monster" data-id="${monster.id}" ${monster.id === f.id ? 'aria-current="true"' : ""}>
       ${monsterEmblem(monster)}
-      <span><b>${escapeHtml(monster.n)}</b><small>${escapeHtml(monster.sp)}</small></span>
+      <span><b>${escapeHtml(monster.n)}</b><small>No.${data.monsters.indexOf(monster) + 1}・${escapeHtml(monster.sp)}</small></span>
     </button>`).join("");
 }
 
