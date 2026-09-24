@@ -1556,3 +1556,58 @@
     display: none;
   }
 }
+
+/* 採取ガイド */
+.mh-gather h2 small {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.mh-gather-table {
+  min-width: 560px;
+}
+
+.mh-gather-table td:first-child {
+  width: 34%;
+}
+
+.mh-gather-item {
+  margin-bottom: 2px;
+}
+
+.mh-gather-item .mh-need-chip {
+  padding: 0 6px;
+  font-size: 0.72rem;
+}
+
+.mh-gather-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.mh-gather-areas {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.mh-gather-areas div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.mh-gather-areas dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+@media (max-width: 520px) {
+  .mh-gather-areas div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

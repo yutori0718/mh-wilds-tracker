@@ -4,11 +4,12 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240552";
+const VERSION = "202609240559";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const LIMIT_BREAK_URL = `./data/armor-limit-break.json?v=${VERSION}`;
 const WEAKNESS_URL = `./data/monster-weakness.json?v=${VERSION}`;
+const GATHERING_URL = `./data/gathering.json?v=${VERSION}`;
 const STORAGE_KEY = "mh-wilds-tracker-v1";
 const PAGE_SIZE = 60;
 
@@ -20,6 +21,7 @@ const TABS = [
   { id: "charms", label: "護石" },
   { id: "decos", label: "装飾品" },
   { id: "items", label: "素材" },
+  { id: "gather", label: "採取ガイド" },
   { id: "monsters", label: "モンスター別ドロップ" },
   { id: "artian", label: "巨戟アーティア" },
   { id: "party", label: "みんな" },
@@ -107,6 +109,8 @@ let data = null;
 let artian = null;
 let limitBreak = null;
 let weakness = null;
+let gathering = null;
+const gatherIndex = new Map(); // 素材名 -> [{ category, entry }]
 const idx = {
   items: new Map(),
   monsters: new Map(),
@@ -130,6 +134,7 @@ const filters = {
   items: { group: "category", cat: "", hr: "", rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
   monsters: { id: "", rank: "high", q: "", view: "drop", map: "" },
   artian: { kind: "", q: "" },
+  gather: { map: "", q: "" },
   list: { hideDone: false },
 };
 
@@ -140,7 +145,7 @@ async function init() {
     const response = await fetch(DATA_URL);
     if (!response.ok) throw new Error(`${DATA_URL}: ${response.status}`);
     data = await response.json();
-    [artian, limitBreak, weakness] = await Promise.all([ARTIAN_URL, LIMIT_BREAK_URL, WEAKNESS_URL].map((url) =>
+    [artian, limitBreak, weakness, gathering] = await Promise.all([ARTIAN_URL, LIMIT_BREAK_URL, WEAKNESS_URL, GATHERING_URL].map((url) =>
       fetch(url).then((res) => (res.ok ? res.json() : null)).catch(() => null)));
   } catch (error) {
     console.error(error);
@@ -165,6 +170,10 @@ function buildIndex() {
   data.items.forEach((item) => idx.items.set(item.id, item));
   data.monsters.forEach((monster) => idx.monsters.set(monster.id, monster));
   (data.stages || []).forEach((stage) => idx.stages.set(stage.id, stage));
+  (gathering?.categories || []).forEach((category) => category.entries.forEach((entry) => entry.items.forEach((name) => {
+    if (!gatherIndex.has(name)) gatherIndex.set(name, []);
+    gatherIndex.get(name).push({ category, entry });
+  })));
   data.weaponTypes.forEach((type) => idx.weaponTypes.set(type.id, type.n));
   data.weapons.forEach((weapon) => idx.weapons.set(weapon.id, weapon));
   data.armor.forEach((set) => set.pc.forEach((piece) => idx.pieces.set(piece.id, { ...piece, set })));
@@ -798,6 +807,7 @@ function renderPanel() {
     items: () => filterPanel(itemControls()),
     monsters: renderMonsterPanel,
     artian: () => filterPanel(artianControls()),
+    gather: () => filterPanel(gatherControls()),
     party: renderPartyPanel,
   };
   panel.innerHTML = renderers[currentTab]();
@@ -819,6 +829,7 @@ function renderResults() {
     decos: decoResults,
     items: itemResults,
     artian: artianResults,
+    gather: gatherResults,
   };
   results.innerHTML = renderers[currentTab]();
 }
@@ -941,6 +952,12 @@ function sphereGuide() {
 
 function itemRanks(item) {
   const ranks = new Set((item.src || []).map((source) => source[1]));
+  // 採取できる素材は採取情報の（上）（下）も反映する
+  (gatherIndex.get(item.n) || []).filter(({ category }) => category.id !== "monster").forEach(({ entry }) => {
+    if (entry.rank) ranks.add(entry.rank);
+    else if (!entry.maps.length || entry.maps.some((where) => !where.rank)) { ranks.add("low"); ranks.add("high"); }
+    else entry.maps.forEach((where) => ranks.add(where.rank));
+  });
   if (!ranks.size) ranks.add(item.r <= 4 ? "low" : "high");
   return ["low", "high"].filter((rank) => ranks.has(rank));
 }
@@ -1614,7 +1631,7 @@ function itemCard(item, need) {
         </div>
         ${need ? `<div class="mh-need-chip ${need.remain === 0 ? "is-done" : ""}">必要 ${need.need} ／ 所持 ${need.owned} ／ 残り ${need.remain}</div>` : ""}
         ${item.d ? `<p class="mh-desc">${escapeHtml(item.d)}</p>` : ""}
-        ${itemStageIds(item).length ? `<div class="mh-src-block"><div class="mh-label">行くマップ（落とすモンスターの出現マップ）</div><div class="mh-stage-row">${stagePills(itemStageIds(item))}</div></div>` : ""}
+        ${itemStageIds(item).length ? `<div class="mh-src-block"><div class="mh-label">行くマップ（採取場所・落とすモンスターの出現マップ）</div><div class="mh-stage-row">${stagePills(itemStageIds(item))}</div></div>` : ""}
         <div class="mh-src-block"><div class="mh-label">入手先</div>${sourceList(item, 8)}</div>
         ${usage.length ? `
           <details class="mh-details">
@@ -1833,6 +1850,65 @@ function weaknessBlock(weaknesses, hasChart = false) {
         return `<div><dt>${label}</dt><dd>${list.map(([, name, level]) => `<span class="mh-weak-item">${WEAKNESS_LABELS[name] || name}<span class="mh-stars">${"★".repeat(level)}</span></span>`).join("")}</dd></div>`;
       }).join("")}
     </dl>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// 採取ガイドタブ（data/gathering.json）
+
+function gatherControls() {
+  const f = filters.gather;
+  return `
+    <p class="mh-note mh-wide">${escapeHtml(gathering?.legend || "")} エリア番号は元の情報に文字で書かれているものだけです。</p>
+    <label class="mh-field"><span>マップ</span>
+      <select data-filter="map">
+        <option value="">すべて</option>
+        ${(data.stages || []).map((stage) => `<option value="${escapeHtml(stage.n)}" ${f.map === stage.n ? "selected" : ""}>${escapeHtml(stage.n)}</option>`).join("")}
+      </select>
+    </label>
+    ${searchField(f.q, "素材名・採取ポイント名で検索")}
+  `;
+}
+
+function gatherResults() {
+  if (!gathering) return `<div class="empty">採取データを読み込めませんでした。</div>`;
+  const f = filters.gather;
+  const needs = new Map(computeNeeds(profile()).rows.map((row) => [row.item?.n, row]));
+  const sections = gathering.categories.map((category) => {
+    const entries = category.entries.filter((entry) =>
+      (!f.map || entry.maps.some((where) => where.map === f.map))
+      && matches(f.q, [...entry.items, entry.source, entry.note, entry.areaNote, category.name]));
+    const areas = Object.entries(category.areas || {}).filter(([map]) => !f.map || map === f.map);
+    if (!entries.length) return "";
+    return `
+      <section class="panel mh-gather">
+        <h2>${category.icon} ${escapeHtml(category.name)} <small>${entries.length}件</small></h2>
+        <div class="table-wrap">
+          <table class="mh-table mh-gather-table">
+            <thead><tr><th>素材</th><th>マップ</th><th>メモ</th></tr></thead>
+            <tbody>
+              ${entries.map((entry) => `
+                <tr>
+                  <td>${entry.items.map((name) => {
+                    const item = data.items.find((candidate) => candidate.n === name);
+                    const need = needs.get(name);
+                    return `<div class="mh-gather-item">${item ? itemLabel(item) : escapeHtml(name)}${need && need.remain > 0 ? ` <span class="mh-need-chip">あと${need.remain}</span>` : ""}</div>`;
+                  }).join("")}${entry.rank ? `<span class="mh-rank ${entry.rank}">${RANK_LABELS[entry.rank]}だけ</span>` : ""}</td>
+                  <td><div class="mh-stage-row">${entry.maps.length ? gatherMapPills(entry.maps) : `<span class="mh-muted">-</span>`}</div></td>
+                  <td class="mh-gather-note">${gatherEntryNote(entry) || ""}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        ${areas.length ? `
+          <h3 class="mh-subhead">${category.id === "mining" ? "鉱脈" : "骨塚"}があるエリア</h3>
+          <dl class="mh-gather-areas">${areas.map(([map, text]) => `<div><dt><span class="mh-stage" style="--stage:${STAGE_COLORS[map] || "#9aa39c"}">${escapeHtml(map)}</span></dt><dd>${escapeHtml(text)}</dd></div>`).join("")}</dl>` : ""}
+      </section>
+    `;
+  }).join("");
+  return `
+    ${sections || `<div class="empty">該当する素材がありません。</div>`}
+    ${(gathering.tips || []).length ? `<div class="panel"><h2>採取のコツ</h2><ul class="mh-lb-tips">${gathering.tips.map((tip) => `<li>${escapeHtml(tip)}</li>`).join("")}</ul></div>` : ""}
   `;
 }
 
@@ -2720,14 +2796,50 @@ function stagePills(stageIds, small = false) {
 
 // 素材を落とすモンスターの出現マップ（重複なし）
 function itemStageIds(item) {
-  const ids = new Set();
+  const ids = new Set(gatherStageIds(item?.n));
   (item?.src || []).forEach(([monsterId]) => (idx.monsters.get(monsterId)?.loc || []).forEach((id) => ids.add(id)));
   return [...ids];
 }
 
+function stageIdByName(name) {
+  return (data.stages || []).find((stage) => stage.n === name)?.id;
+}
+
+function gatherStageIds(name) {
+  const ids = new Set();
+  (gatherIndex.get(name) || []).forEach(({ entry }) => entry.maps.forEach((where) => {
+    const id = stageIdByName(where.map);
+    if (id) ids.add(id);
+  }));
+  return [...ids];
+}
+
+// 採取場所のマップ（（上）（下）やメモ付き）
+function gatherMapPills(maps) {
+  const all = ["隔ての砂原", "緋の森", "油涌き谷", "氷霧の断崖", "竜都の跡形"];
+  if (maps.length === 5 && all.every((name) => maps.some((where) => where.map === name && !where.rank && !where.note))) {
+    return `<span class="mh-stage" style="--stage:#8fd3b6">全マップ</span>`;
+  }
+  return maps.map((where) => `<span class="mh-stage" style="--stage:${STAGE_COLORS[where.map] || "#9aa39c"}">${escapeHtml(where.map)}${where.rank ? `（${RANK_LABELS[where.rank].slice(0, 1)}）` : ""}${where.note ? ` ${escapeHtml(where.note)}` : ""}</span>`).join("");
+}
+
+function gatherEntryNote(entry) {
+  return [entry.source ? `${entry.source}から` : "", entry.areaNote, entry.note].filter(Boolean).map(escapeHtml).join("／");
+}
+
+function gatherList(name) {
+  const list = gatherIndex.get(name) || [];
+  if (!list.length) return "";
+  return `<ul class="mh-sources">${list.map(({ category, entry }) => `
+    <li><b>${category.icon} ${escapeHtml(category.name)}</b>${entry.rank ? ` <span class="mh-rank ${entry.rank}">${RANK_LABELS[entry.rank]}だけ</span>` : ""}
+      <span class="mh-stage-row">${gatherMapPills(entry.maps)}</span>
+      ${gatherEntryNote(entry) ? `<span class="mh-muted">${gatherEntryNote(entry)}</span>` : ""}</li>`).join("")}</ul>`;
+}
+
 function sourceList(item, max) {
   const sources = item?.src || [];
-  if (!sources.length) return `<span class="mh-muted">採取・交易・調査報酬など</span>`;
+  const gather = gatherList(item?.n);
+  if (!sources.length) return gather || `<span class="mh-muted">採取・交易・調査報酬など</span>`;
   const shown = sources.slice(0, max);
   return `
     <ul class="mh-sources">
@@ -2737,6 +2849,7 @@ function sourceList(item, max) {
         <span class="mh-stage-row">${stagePills(idx.monsters.get(monsterId)?.loc || [], true)}</span></li>`).join("")}
       ${sources.length > shown.length ? `<li class="mh-muted">ほか${sources.length - shown.length}件</li>` : ""}
     </ul>
+    ${gather}
   `;
 }
 
