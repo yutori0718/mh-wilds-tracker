@@ -1320,3 +1320,189 @@
 .mh-upgrade-table {
   min-width: 460px;
 }
+
+/* 限界突破 */
+.mh-upgrade.mh-lb {
+  border-color: rgba(245, 176, 65, 0.5);
+  background: rgba(245, 176, 65, 0.07);
+}
+
+.mh-upgrade-table tr.is-lb td {
+  background: rgba(245, 176, 65, 0.08);
+}
+
+.mh-lb-row td {
+  color: var(--blue);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.mh-lb-tips {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.7;
+}
+
+.mh-lb-note {
+  color: #ffd48a;
+}
+
+/* 弱点 */
+.mh-el-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--el);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--el) 50%, transparent));
+}
+
+.mh-el-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mh-chip-weak {
+  display: inline-flex !important;
+  grid-auto-flow: column;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.mh-chip-weak .mh-el-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.mh-weak-chart {
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.mh-weak-chart-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.mh-weak-cells {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mh-weak-cell {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 4px;
+  background: rgba(4, 10, 8, 0.4);
+}
+
+.mh-weak-cell.best {
+  border-color: rgba(143, 211, 182, 0.7);
+  background: rgba(143, 211, 182, 0.12);
+}
+
+.mh-weak-cell small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.mh-weak-mark {
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.mh-weak-mark.w0 { color: #7fe0a6; }
+.mh-weak-mark.w1 { color: #b9e88a; }
+.mh-weak-mark.w2 { color: #f5c451; }
+.mh-weak-mark.w3 { color: #9aa39c; }
+.mh-weak-mark.w4 { color: #ff8a8a; font-size: 0.82rem; }
+
+.mh-weak-note {
+  margin-top: 8px;
+  color: #ffd48a;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.mh-weak-legend {
+  margin-top: 6px;
+  font-size: 0.72rem;
+}
+
+.mh-view-tabs {
+  margin-bottom: 12px;
+}
+
+.mh-weak-table {
+  min-width: 480px;
+}
+
+.mh-weak-table th:not(:first-child),
+.mh-weak-td {
+  width: 13%;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.mh-weak-table th .mh-el-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.mh-weak-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  color: var(--white);
+  background: none;
+  text-align: left;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mh-weak-name .mh-emblem {
+  width: 30px;
+  height: 30px;
+}
+
+.mh-weak-name small {
+  display: block;
+  color: #ffd48a;
+  font-size: 0.7rem;
+}
+
+.mh-weak-name:hover span {
+  text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+  .mh-weak-table {
+    min-width: 0;
+  }
+
+  .mh-weak-table td,
+  .mh-weak-table th {
+    padding: 6px 3px;
+  }
+
+  .mh-weak-name {
+    font-size: 0.78rem;
+  }
+
+  .mh-weak-name .mh-emblem {
+    display: none;
+  }
+}

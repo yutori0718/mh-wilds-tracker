@@ -1,0 +1,239 @@
+{
+ "note": "属性の効きやすさ（◎とても有効 / ○有効 / ▲やや有効 / ×効きにくい / 無効）。ユーザー提供の弱点早見表から入力。",
+ "notes": {
+  "ゴグマジオス": "大技対策に龍属性が必須"
+ },
+ "monsters": {
+  "チャタカブラ": {
+   "fire": "×",
+   "water": "×",
+   "thunder": "◎",
+   "ice": "▲",
+   "dragon": "無効"
+  },
+  "ケマトリス": {
+   "fire": "無効",
+   "water": "○",
+   "thunder": "×",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "ラバラ・バリナ": {
+   "fire": "○",
+   "water": "無効",
+   "thunder": "×",
+   "ice": "×",
+   "dragon": "無効"
+  },
+  "ババコンガ": {
+   "fire": "○",
+   "water": "×",
+   "thunder": "×",
+   "ice": "○",
+   "dragon": "×"
+  },
+  "バーラハーラ": {
+   "fire": "×",
+   "water": "無効",
+   "thunder": "○",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "ドシャグマ": {
+   "fire": "○",
+   "water": "×",
+   "thunder": "▲",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "ウズ・トゥナ": {
+   "fire": "×",
+   "water": "無効",
+   "thunder": "○",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "ププロポル": {
+   "fire": "×",
+   "water": "○",
+   "thunder": "×",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "レ・ダウ": {
+   "fire": "×",
+   "water": "▲",
+   "thunder": "無効",
+   "ice": "○",
+   "dragon": "×"
+  },
+  "ネルスキュラ": {
+   "fire": "○",
+   "water": "無効",
+   "thunder": "無効",
+   "ice": "×",
+   "dragon": "無効"
+  },
+  "ヒラバミ": {
+   "fire": "◎",
+   "water": "×",
+   "thunder": "○",
+   "ice": "無効",
+   "dragon": "×"
+  },
+  "アジャラカン": {
+   "fire": "無効",
+   "water": "◎",
+   "thunder": "×",
+   "ice": "▲",
+   "dragon": "×"
+  },
+  "ヌ・エグドラ": {
+   "fire": "無効",
+   "water": "○",
+   "thunder": "×",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "護竜ドシャグマ": {
+   "fire": "◎",
+   "water": "×",
+   "thunder": "▲",
+   "ice": "◎",
+   "dragon": "○"
+  },
+  "護竜リオレウス": {
+   "fire": "無効",
+   "water": "×",
+   "thunder": "○",
+   "ice": "×",
+   "dragon": "◎"
+  },
+  "ジン・ダハド": {
+   "fire": "▲",
+   "water": "×",
+   "thunder": "×",
+   "ice": "無効",
+   "dragon": "×"
+  },
+  "護竜オドガロン亜種": {
+   "fire": "○",
+   "water": "◎",
+   "thunder": "○",
+   "ice": "○",
+   "dragon": "○"
+  },
+  "シーウー": {
+   "fire": "×",
+   "water": "×",
+   "thunder": "×",
+   "ice": "◎",
+   "dragon": "無効"
+  },
+  "アルシュベルド": {
+   "fire": "×",
+   "water": "×",
+   "thunder": "×",
+   "ice": "×",
+   "dragon": "▲"
+  },
+  "イャンクック": {
+   "fire": "×",
+   "water": "▲",
+   "thunder": "○",
+   "ice": "◎",
+   "dragon": "無効"
+  },
+  "ゲリョス": {
+   "fire": "◎",
+   "water": "×",
+   "thunder": "無効",
+   "ice": "○",
+   "dragon": "×"
+  },
+  "リオレイア": {
+   "fire": "無効",
+   "water": "▲",
+   "thunder": "○",
+   "ice": "▲",
+   "dragon": "◎"
+  },
+  "護竜アンジャナフ亜種": {
+   "fire": "×",
+   "water": "◎",
+   "thunder": "無効",
+   "ice": "◎",
+   "dragon": "○"
+  },
+  "リオレウス": {
+   "fire": "無効",
+   "water": "×",
+   "thunder": "○",
+   "ice": "×",
+   "dragon": "◎"
+  },
+  "グラビモス": {
+   "fire": "無効",
+   "water": "◎",
+   "thunder": "×",
+   "ice": "▲",
+   "dragon": "○"
+  },
+  "ドドブランゴ": {
+   "fire": "◎",
+   "water": "×",
+   "thunder": "▲",
+   "ice": "無効",
+   "dragon": "無効"
+  },
+  "ゴア・マガラ": {
+   "fire": "○",
+   "water": "無効",
+   "thunder": "▲",
+   "ice": "×",
+   "dragon": "▲"
+  },
+  "ゾ・シア": {
+   "fire": "×",
+   "water": "×",
+   "thunder": "×",
+   "ice": "×",
+   "dragon": "○"
+  },
+  "タマミツネ": {
+   "fire": "×",
+   "water": "無効",
+   "thunder": "○",
+   "ice": "▲",
+   "dragon": "○"
+  },
+  "ラギアクルス": {
+   "fire": "○",
+   "water": "無効",
+   "thunder": "無効",
+   "ice": "×",
+   "dragon": "×"
+  },
+  "セルレギオス": {
+   "fire": "無効",
+   "water": "×",
+   "thunder": "○",
+   "ice": "▲",
+   "dragon": "×"
+  },
+  "オメガ・プラネテス": {
+   "fire": "無効",
+   "water": "▲",
+   "thunder": "◎",
+   "ice": "▲",
+   "dragon": "○"
+  },
+  "ゴグマジオス": {
+   "fire": "◎",
+   "water": "無効",
+   "thunder": "無効",
+   "ice": "無効",
+   "dragon": "◎"
+  }
+ }
+}

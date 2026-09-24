@@ -256,10 +256,18 @@ def main():
         print("warning: unknown item ids", sorted(missing))
 
     # 防具強化（レア度ごと）: [強化後のLv, 防御力+, 必要ポイント, 費用]
-    upgrades = {
-        str(u["rarity"]): [[st["level"], st["extra_defense"], st["point_cost"], st["zenny_cost"]] for st in u["steps"]]
-        for u in load("ArmorUpgrade.json")
-    }
+    # 元データでは限界突破後の上限までが1段にまとめられている（例: レア5は Lv20 の次が Lv28）。
+    # 1レベルごとに展開し、まとめられていた段の手前（限界突破前の上限）を lb に記録する。
+    upgrades = {}
+    for u in load("ArmorUpgrade.json"):
+        steps, lb, prev = [], None, 1
+        for st in sorted(u["steps"], key=lambda st: st["level"]):
+            if st["level"] - prev > 1:
+                lb = prev
+            for level in range(prev + 1, st["level"] + 1):
+                steps.append([level, st["extra_defense"], st["point_cost"], st["zenny_cost"]])
+            prev = st["level"]
+        upgrades[str(u["rarity"])] = {"steps": steps, "lb": lb}
 
     data = {
         "armorUpgrades": upgrades,

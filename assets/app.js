@@ -4,10 +4,11 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240538";
+const VERSION = "202609240546";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const LIMIT_BREAK_URL = `./data/armor-limit-break.json?v=${VERSION}`;
+const WEAKNESS_URL = `./data/monster-weakness.json?v=${VERSION}`;
 const STORAGE_KEY = "mh-wilds-tracker-v1";
 const PAGE_SIZE = 60;
 
@@ -86,6 +87,17 @@ const ARMOR_SPHERES = [
   { n: "上鎧玉", pt: 50, from: "★3クエスト以上" },
   { n: "鎧玉", pt: 10, from: "★2クエスト以上" },
 ];
+// 属性アイコン（オリジナル図案）
+const ELEMENT_ICONS = {
+  fire: { color: "#ff5a3c", svg: `<path d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 2 4 1-2 1-5 1-8Z"/>` },
+  water: { color: "#3fa4ff", svg: `<path d="M12 2c3 5 7 9 7 13a7 7 0 0 1-14 0c0-4 4-8 7-13Z"/>` },
+  thunder: { color: "#ffd21f", svg: `<path d="M14 2 5 14h6l-2 8 10-13h-6l1-7Z"/>` },
+  ice: { color: "#8fe3ff", svg: `<path d="M11 2h2v7l5-4 1 2-5 4h8v2h-8l5 4-1 2-5-4v8h-2v-8l-5 4-1-2 5-4H2v-2h8L5 7l1-2 5 4Z"/>` },
+  dragon: { color: "#b36bff", svg: `<path d="M12 2 16 9l5 1-4 4 1 8-6-4-6 4 1-8-4-4 5-1Z"/>` },
+};
+const WEAK_ELEMENTS = ["fire", "water", "thunder", "ice", "dragon"];
+const WEAK_ORDER = { "◎": 0, "○": 1, "▲": 2, "×": 3, "無効": 4 };
+const WEAK_TITLES = { "◎": "とても有効", "○": "有効", "▲": "やや有効", "×": "効きにくい", "無効": "無効" };
 const SLOT_MARKS = ["", "①", "②", "③", "④"];
 
 const app = document.querySelector("#app");
@@ -93,6 +105,7 @@ const app = document.querySelector("#app");
 let data = null;
 let artian = null;
 let limitBreak = null;
+let weakness = null;
 const idx = {
   items: new Map(),
   monsters: new Map(),
@@ -113,7 +126,7 @@ const filters = {
   charms: { q: "", wantedOnly: false, limit: PAGE_SIZE },
   decos: { on: "", lv: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
   items: { group: "category", cat: "", hr: "", rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
-  monsters: { id: "", rank: "high", q: "" },
+  monsters: { id: "", rank: "high", q: "", view: "drop" },
   artian: { kind: "", q: "" },
   list: { hideDone: false },
 };
@@ -125,7 +138,7 @@ async function init() {
     const response = await fetch(DATA_URL);
     if (!response.ok) throw new Error(`${DATA_URL}: ${response.status}`);
     data = await response.json();
-    [artian, limitBreak] = await Promise.all([ARTIAN_URL, LIMIT_BREAK_URL].map((url) =>
+    [artian, limitBreak, weakness] = await Promise.all([ARTIAN_URL, LIMIT_BREAK_URL, WEAKNESS_URL].map((url) =>
       fetch(url).then((res) => (res.ok ? res.json() : null)).catch(() => null)));
   } catch (error) {
     console.error(error);
@@ -244,6 +257,7 @@ function computeNeeds(target) {
   const needed = new Map();
   let zenny = 0;
   let upgradePoints = 0;
+  let limitBreaks = 0;
   Object.entries(target.wants).forEach(([key, want]) => {
     const info = resolveWant(key);
     if (!info) return;
@@ -255,10 +269,15 @@ function computeNeeds(target) {
         needed.set(itemId, (needed.get(itemId) || 0) + amount * count);
       });
     });
-    if (info.kind === "a" && want.upg) {
+    if (info.kind === "a" && (want.upg || want.lb)) {
       const upgrade = upgradeInfo(info.entity.set.r);
       zenny += upgrade.zenny * count;
       upgradePoints += upgrade.points * count;
+      if (want.lb && upgrade.lb) {
+        zenny += (upgrade.lb.zenny + (upgrade.lb.zennyBreak || 0)) * count;
+        upgradePoints += upgrade.lb.points * count;
+        limitBreaks += count;
+      }
     }
   });
   // 強化ポイントは大きい鎧玉から順に割り当てて、必要素材に加える
@@ -270,7 +289,7 @@ function computeNeeds(target) {
     return { itemId, item: idx.items.get(itemId), need, owned, remain: Math.max(0, need - owned) };
   });
   rows.sort((a, b) => (a.remain === 0) - (b.remain === 0) || (b.item?.r || 0) - (a.item?.r || 0) || (a.item?.n || "").localeCompare(b.item?.n || "", "ja"));
-  return { rows, zenny, upgradePoints };
+  return { rows, zenny, upgradePoints, limitBreaks };
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +343,7 @@ function sanitizeWants(source) {
   const result = {};
   Object.entries(source || {}).forEach(([key, value]) => {
     if (!resolveWant(key)) return;
-    result[key] = { n: Math.max(1, Math.min(99, Math.floor(Number(value?.n) || 1))), ...(value?.chain ? { chain: true } : {}), ...(value?.upg ? { upg: true } : {}) };
+    result[key] = { n: Math.max(1, Math.min(99, Math.floor(Number(value?.n) || 1))), ...(value?.chain ? { chain: true } : {}), ...(value?.upg ? { upg: true } : {}), ...(value?.lb ? { lb: true } : {}) };
   });
   return result;
 }
@@ -458,6 +477,18 @@ async function onClick(event) {
     app.querySelector("[data-role='monster-detail']")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
+  if (action === "monster-open") {
+    filters.monsters.view = "drop";
+    filters.monsters.id = button.dataset.id;
+    renderPanel();
+    app.querySelector("[data-role='monster-detail']")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (action === "monster-view") {
+    filters.monsters.view = button.dataset.view;
+    renderPanel();
+    return;
+  }
   if (action === "monster-rank") {
     filters.monsters.rank = button.dataset.rank;
     renderPanel();
@@ -585,6 +616,13 @@ function onChange(event) {
     store.current = field.value;
     saveStore();
     renderAll();
+    return;
+  }
+  if (field.dataset.lb) {
+    const want = target.wants[field.dataset.lb];
+    if (want) want.lb = field.checked;
+    saveStore();
+    renderPanel();
     return;
   }
   if (field.dataset.upg) {
@@ -822,15 +860,28 @@ function armorRankOf(set) {
   return set.r <= 4 ? "low" : "high";
 }
 
-// 防具を最大まで強化するのに必要な分（レア度ごとのデータから）
+// 防具の強化（レア度ごと）。通常の上限までと、限界突破で増える分に分けて集計する
 function upgradeInfo(rarity) {
-  const steps = data.armorUpgrades?.[String(rarity)] || [];
-  return {
+  const upgrade = data.armorUpgrades?.[String(rarity)] || { steps: [], lb: null };
+  const sum = (steps) => ({
     maxLv: steps.length ? steps[steps.length - 1][0] : 1,
-    def: steps.reduce((sum, step) => sum + step[1], 0),
-    points: steps.reduce((sum, step) => sum + step[2], 0),
-    zenny: steps.reduce((sum, step) => sum + step[3], 0),
-  };
+    def: steps.reduce((total, step) => total + step[1], 0),
+    points: steps.reduce((total, step) => total + step[2], 0),
+    zenny: steps.reduce((total, step) => total + step[3], 0),
+  });
+  const normal = sum(upgrade.steps.filter((step) => !upgrade.lb || step[0] <= upgrade.lb));
+  const extra = upgrade.lb ? upgrade.steps.filter((step) => step[0] > upgrade.lb) : [];
+  const lbInfo = limitBreak?.byRarity?.[String(rarity)];
+  const lb = extra.length ? { ...sum(extra), fromLv: upgrade.lb, zennyBreak: lbInfo?.zenny ?? null, info: lbInfo } : null;
+  return { ...normal, lb };
+}
+
+// 限界突破後のスロット（レア5: 3枠すべて+1、レア6: 左2枠+1、上限Lv3）
+function limitBreakSlots(slots, rarity) {
+  const count = rarity === 5 ? 3 : rarity === 6 ? 2 : 0;
+  if (!count) return slots;
+  const padded = [...slots, 0, 0, 0].slice(0, 3);
+  return padded.map((lv, i) => (i < count ? Math.min(3, lv + 1) : lv)).filter((lv) => lv > 0);
 }
 
 // 必要ポイントを大きい鎧玉から順に割り当てた個数
@@ -848,15 +899,24 @@ function sphereText(points) {
   return sphereMix(points).map((entry) => `${escapeHtml(entry.n)}×${entry.count}`).join(" + ");
 }
 
-function upgradeLine(rarity, baseDef, count = 1) {
+function upgradeLine(rarity, baseDef, count = 1, slots) {
   const info = upgradeInfo(rarity);
   if (!info.points) return "";
+  const lb = info.lb;
+  const newSlots = slots && limitBreakSlots(slots, rarity);
   return `
     <div class="mh-upgrade">
       <div><b>最大強化 Lv${info.maxLv}</b>${baseDef !== undefined ? `（防御 ${baseDef} → ${baseDef + info.def}）` : ""}</div>
       <div>強化ポイント <b>${(info.points * count).toLocaleString()}pt</b> ／ 費用 <b>${(info.zenny * count).toLocaleString()}z</b></div>
       <div class="mh-muted">鎧玉の例: ${sphereText(info.points * count)}</div>
     </div>
+    ${lb ? `
+    <div class="mh-upgrade mh-lb">
+      <div><b>限界突破</b> Lv${lb.fromLv} → <b>Lv${lb.maxLv}</b>${baseDef !== undefined ? `（防御 → ${baseDef + info.def + lb.def}）` : `（防御 +${lb.def}）`}</div>
+      <div>追加の強化 <b>${(lb.points * count).toLocaleString()}pt</b> ／ <b>${(lb.zenny * count).toLocaleString()}z</b>${lb.zennyBreak ? ` ＋ 突破 ${(lb.zennyBreak * count).toLocaleString()}z` : ""}</div>
+      ${newSlots && newSlots.join() !== slots.join() ? `<div>スロット ${slotText(slots)} → <b>${slotText(newSlots)}</b></div>` : ""}
+      <div class="mh-muted">鎧玉の例: ${sphereText(lb.points * count)}</div>
+    </div>` : ""}
   `;
 }
 
@@ -905,7 +965,7 @@ function renderListPanel() {
   const wants = Object.entries(target.wants)
     .map(([key, want]) => ({ key, want, info: resolveWant(key) }))
     .filter((entry) => entry.info);
-  const { rows, zenny, upgradePoints } = computeNeeds(target);
+  const { rows, zenny, upgradePoints, limitBreaks } = computeNeeds(target);
   const visibleRows = filters.list.hideDone ? rows.filter((row) => row.remain > 0) : rows;
   const wantedDecos = Object.entries(target.decos).filter(([, deco]) => deco.want > 0);
 
@@ -930,6 +990,7 @@ function renderListPanel() {
         </div>
       </div>
       <p class="mh-note">「所持」に持っている数を入れると、残りの必要数が減ります。必要なお金: <b>${zenny.toLocaleString()}z</b>${upgradePoints ? `（防具強化を含む）／ 防具強化ポイント: <b>${upgradePoints.toLocaleString()}pt</b>（鎧玉は大きい順に計算）` : ""}</p>
+      ${limitBreaks ? `<p class="mh-note mh-lb-note">限界突破 ${limitBreaks}件: 突破の素材（歴戦狩猟の証・狩猟証・玉系など）は防具ごとに違うため、この表には含まれていません。ゲーム内で確認してください。</p>` : ""}
       <div data-role="need-summary">${needSummary(rows)}</div>
       ${visibleRows.length ? `
         <div class="table-wrap">
@@ -955,6 +1016,7 @@ function wantRow({ key, want, info }) {
         <b>${escapeHtml(info.name)}</b>
       </div>
       <div class="mh-row">
+        ${info.kind === "a" && upgradeInfo(info.entity.set.r).lb ? `<label class="mh-check" title="限界突破の費用と、上がった上限まで強化する鎧玉も加えます"><input type="checkbox" data-lb="${key}" ${want.lb ? "checked" : ""} /> 限界突破して最大（Lv${upgradeInfo(info.entity.set.r).lb.maxLv}）</label>` : ""}
         ${info.kind === "a" && upgradeInfo(info.entity.set.r).points ? `<label class="mh-check" title="最大まで強化する金額と鎧玉を必要素材に加えます"><input type="checkbox" data-upg="${key}" ${want.upg ? "checked" : ""} /> 最大まで強化（Lv${upgradeInfo(info.entity.set.r).maxLv}）</label>` : ""}
         ${isWeapon && chainLength > 1 ? `<label class="mh-check" title="生産から強化までに使う素材をすべて合計します"><input type="checkbox" data-chain="${key}" ${want.chain ? "checked" : ""} /> 生産から全部（${chainLength}段階）</label>` : ""}
         <span class="mh-stepper">
@@ -1235,7 +1297,7 @@ function armorCard(set) {
             <h3>${escapeHtml(set.n)}</h3>
           </div>
           <div class="mh-row">
-            ${upgradeInfo(set.r).points ? `<span class="mh-set-upgrade">${pieces.length}部位を最大強化: <b>${(upgradeInfo(set.r).points * pieces.length).toLocaleString()}pt</b> ／ <b>${(upgradeInfo(set.r).zenny * pieces.length).toLocaleString()}z</b></span>` : ""}
+            ${upgradeInfo(set.r).points ? `<span class="mh-set-upgrade">${pieces.length}部位を最大強化: <b>${(upgradeInfo(set.r).points * pieces.length).toLocaleString()}pt</b> ／ <b>${(upgradeInfo(set.r).zenny * pieces.length).toLocaleString()}z</b>${upgradeInfo(set.r).lb ? `<br />限界突破後の最大まで: <b>${((upgradeInfo(set.r).points + upgradeInfo(set.r).lb.points) * pieces.length).toLocaleString()}pt</b>` : ""}</span>` : ""}
             <button type="button" class="mh-btn small" data-action="want-set" data-keys="${pieces.map((piece) => `a:${piece.id}`).join(",")}">全部位を欲しい</button>
           </div>
         </div>
@@ -1249,7 +1311,7 @@ function armorCard(set) {
               <div class="mh-note">防御 ${piece.def ?? "-"} ／ スロット ${slotText(piece.sl)}</div>
               ${skillList(piece.sk)}
               ${materialList(piece.in, piece.z)}
-              ${upgradeLine(set.r, piece.def)}
+              ${upgradeLine(set.r, piece.def, 1, piece.sl)}
             </div>`).join("")}
         </div>
       </div>
@@ -1276,7 +1338,8 @@ function openArmorDetail(pieceId) {
 function armorDetailHtml(piece) {
   const set = piece.set;
   const rank = armorRankOf(set);
-  const steps = data.armorUpgrades?.[String(set.r)] || [];
+  const upgrade = data.armorUpgrades?.[String(set.r)] || { steps: [], lb: null };
+  const steps = upgrade.steps;
   const info = upgradeInfo(set.r);
   let def = piece.def;
   let points = 0;
@@ -1285,7 +1348,8 @@ function armorDetailHtml(piece) {
     def += extra;
     points += pt;
     zenny += z;
-    return `<tr><td class="num">Lv${level}</td><td class="num">${def}</td><td class="num">${pt.toLocaleString()}</td><td class="num">${z.toLocaleString()}</td><td class="num">${points.toLocaleString()}</td><td class="num">${zenny.toLocaleString()}</td></tr>`;
+    const isLb = upgrade.lb && level > upgrade.lb;
+    return `${isLb && level === upgrade.lb + 1 ? `<tr class="mh-lb-row"><td colspan="6">▼ ここから限界突破後（Lv${upgrade.lb} → Lv${info.lb.maxLv}）</td></tr>` : ""}<tr class="${isLb ? "is-lb" : ""}"><td class="num">Lv${level}</td><td class="num">${def}</td><td class="num">${pt.toLocaleString()}</td><td class="num">${z.toLocaleString()}</td><td class="num">${points.toLocaleString()}</td><td class="num">${zenny.toLocaleString()}</td></tr>`;
   }).join("");
   const bonuses = [set.sb, set.gb].filter(Boolean).map(([id, ranks]) => {
     const skill = data.skills[id];
@@ -1301,8 +1365,8 @@ function armorDetailHtml(piece) {
     </div>
     <div class="mh-detail-body">
       <dl class="mh-sim-stats">
-        <div><dt>防御力</dt><dd>${piece.def}<small>最大強化 ${piece.def + info.def}</small></dd></div>
-        <div><dt>スロット</dt><dd>${slotText(piece.sl)}</dd></div>
+        <div><dt>防御力</dt><dd>${piece.def}<small>最大強化 ${piece.def + info.def}${info.lb ? `／限界突破後 ${piece.def + info.def + info.lb.def}` : ""}</small></dd></div>
+        <div><dt>スロット</dt><dd>${slotText(piece.sl)}${info.lb && limitBreakSlots(piece.sl, set.r).join() !== piece.sl.join() ? `<small>限界突破後 ${slotText(limitBreakSlots(piece.sl, set.r))}</small>` : ""}</dd></div>
         ${RESIST_LABELS.map((label, i) => `<div><dt>${label}耐性</dt><dd class="${(piece.res?.[i] || 0) < 0 ? "mh-minus" : ""}">${piece.res?.[i] ?? 0}</dd></div>`).join("")}
       </dl>
 
@@ -1319,7 +1383,7 @@ function armorDetailHtml(piece) {
       <h3 class="mh-subhead">生産素材</h3>
       ${materialList(piece.in, piece.z)}
 
-      <h3 class="mh-subhead">強化（Lv1 → Lv${info.maxLv}）</h3>
+      <h3 class="mh-subhead">強化（Lv1 → Lv${info.lb ? `${info.maxLv}、限界突破後 Lv${info.lb.maxLv}` : info.maxLv}）</h3>
       ${steps.length ? `
         <div class="table-wrap">
           <table class="mh-table mh-upgrade-table">
@@ -1327,7 +1391,8 @@ function armorDetailHtml(piece) {
             <tbody>${upgradeRows}</tbody>
           </table>
         </div>
-        <p class="mh-note">最大まで: <b>${info.points.toLocaleString()}pt</b> ／ <b>${info.zenny.toLocaleString()}z</b>　鎧玉の例: ${sphereText(info.points)}</p>` : `<div class="empty">強化データがありません。</div>`}
+        <p class="mh-note">通常の最大（Lv${info.maxLv}）まで: <b>${info.points.toLocaleString()}pt</b> ／ <b>${info.zenny.toLocaleString()}z</b>　鎧玉の例: ${sphereText(info.points)}</p>
+        ${info.lb ? `<p class="mh-note">限界突破後の最大（Lv${info.lb.maxLv}）まで追加で: <b>${info.lb.points.toLocaleString()}pt</b> ／ <b>${info.lb.zenny.toLocaleString()}z</b>　鎧玉の例: ${sphereText(info.lb.points)}</p>` : ""}` : `<div class="empty">強化データがありません。</div>`}
 
       <h3 class="mh-subhead">限界突破</h3>
       ${limitBreakHtml(piece)}
@@ -1335,24 +1400,29 @@ function armorDetailHtml(piece) {
   `;
 }
 
-// data/armor-limit-break.json の byRarity[レア度] = [{ step, def, zenny, materials: { 素材名: 個数 }, note }]
+// 限界突破（data/armor-limit-break.json）。1つの防具につき1回、上位防具（レア5〜8）のみ
 function limitBreakHtml(piece) {
-  const stages = limitBreak?.byRarity?.[String(piece.set.r)] || [];
-  if (!stages.length) {
-    return `<div class="empty">限界突破のデータはまだ登録されていません。<br />必要な素材・金額・上がる防御力が分かり次第、ここに表示されます。</div>`;
-  }
-  const owned = profile().owned;
-  const byName = new Map(data.items.map((item) => [item.n, item]));
-  return `<div class="mh-detail-list">${stages.map((stage, i) => `
-    <div class="mh-upgrade">
-      <div><b>${escapeHtml(stage.step || `限界突破${i + 1}`)}</b>${stage.def ? `（防御 +${stage.def}）` : ""}${stage.zenny ? ` ／ 費用 <b>${Number(stage.zenny).toLocaleString()}z</b>` : ""}</div>
-      <ul class="mh-materials">${Object.entries(stage.materials || {}).map(([name, count]) => {
-        const item = byName.get(name);
-        const have = item ? owned[item.id] || 0 : 0;
-        return `<li class="${have >= count ? "is-done" : ""}">${item ? itemLabel(item) : escapeHtml(name)}<span>×${count}</span></li>`;
-      }).join("")}</ul>
-      ${stage.note ? `<div class="mh-muted">${escapeHtml(stage.note)}</div>` : ""}
-    </div>`).join("")}</div>`;
+  const info = upgradeInfo(piece.set.r);
+  if (!info.lb) return `<div class="empty">下位の防具（レア1〜4）は限界突破できません。</div>`;
+  const lb = info.lb;
+  const detail = lb.info || {};
+  const newSlots = limitBreakSlots(piece.sl, piece.set.r);
+  return `
+    <div class="mh-upgrade mh-lb">
+      <div><b>強化レベルの上限</b> Lv${lb.fromLv} → <b>Lv${lb.maxLv}</b>（1回だけ）</div>
+      <div><b>上がる防御力</b> +${lb.def}（上がった上限まで鎧玉で強化したとき：${piece.def + info.def} → ${piece.def + info.def + lb.def}）</div>
+      <div><b>スロット</b> ${newSlots.join() !== piece.sl.join() ? `${slotText(piece.sl)} → <b>${slotText(newSlots)}</b>` : "変化なし"}${detail.slots ? `<span class="mh-muted">（${escapeHtml(detail.slots)}）</span>` : ""}</div>
+      <div><b>突破の費用</b> ${detail.zenny ? `${Number(detail.zenny).toLocaleString()}z` : "未確認"}${detail.zennyNote ? `（${escapeHtml(detail.zennyNote)}）` : ""}</div>
+      <div><b>突破の素材</b> ${escapeHtml(detail.materials || "未確認")}</div>
+      ${detail.example ? `<div class="mh-muted">例：${escapeHtml(detail.example)}</div>` : ""}
+      <div><b>突破後の追加強化</b> ${lb.points.toLocaleString()}pt ／ ${lb.zenny.toLocaleString()}z（鎧玉の例: ${sphereText(lb.points)}）</div>
+    </div>
+    <ul class="mh-lb-tips">
+      ${limitBreak?.unlock ? `<li>解放条件：${escapeHtml(limitBreak.unlock)}</li>` : ""}
+      ${limitBreak?.materialsNote ? `<li>${escapeHtml(limitBreak.materialsNote)}</li>` : ""}
+      ${(limitBreak?.tips || []).map((tip) => `<li>${escapeHtml(tip)}</li>`).join("")}
+    </ul>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -1554,7 +1624,20 @@ function itemCard(item, need) {
 function renderMonsterPanel() {
   const f = filters.monsters;
   if (!idx.monsters.has(f.id)) f.id = data.monsters[0]?.id || "";
+  if (f.view === "weak") {
+    return `
+      <div class="mh-rank-tabs mh-view-tabs">
+        <button type="button" class="mh-btn small" data-action="monster-view" data-view="drop">モンスター別ドロップ</button>
+        <button type="button" class="mh-btn small primary" data-action="monster-view" data-view="weak">弱点早見表</button>
+      </div>
+      ${weaknessTable()}
+    `;
+  }
   return `
+    <div class="mh-rank-tabs mh-view-tabs">
+      <button type="button" class="mh-btn small primary" data-action="monster-view" data-view="drop">モンスター別ドロップ</button>
+      <button type="button" class="mh-btn small" data-action="monster-view" data-view="weak">弱点早見表</button>
+    </div>
     <div class="mh-controls">
       <label class="mh-field grow"><span>モンスター検索</span><input class="mh-input" type="search" data-monster-filter value="${escapeHtml(f.q)}" placeholder="モンスター名・種族・素材名で検索" /></label>
     </div>
@@ -1573,6 +1656,7 @@ function monsterChips() {
     <button type="button" class="mh-monster-chip" data-action="monster" data-id="${monster.id}" ${monster.id === f.id ? 'aria-current="true"' : ""}>
       ${monsterEmblem(monster)}
       <span><b>${escapeHtml(monster.n)}</b><small>No.${data.monsters.indexOf(monster) + 1}・${escapeHtml(monster.sp)}</small></span>
+      <span class="mh-chip-weak">${bestElements(monster).map((el) => elementIcon(el)).join("")}</span>
     </button>`).join("");
 }
 
@@ -1610,7 +1694,8 @@ function monsterDetail(monster) {
           <div class="meta-row"><span class="pill">${escapeHtml(monster.sp)}</span>${monster.tmp ? `<span class="pill purple">歴戦の個体あり</span>` : ""}</div>
         </div>
       </div>
-      ${weaknessBlock(monster.wk)}
+      ${weaknessChart(monster)}
+      ${weaknessBlock(monster.wk, Boolean(weaknessOf(monster)))}
       <div class="mh-rank-tabs">
         ${ranks.map((value) => `<button type="button" class="mh-btn small ${value === rank ? "primary" : ""}" data-action="monster-rank" data-rank="${value}">${RANK_LABELS[value]}</button>`).join("")}
       </div>
@@ -1651,10 +1736,72 @@ function chanceBar(chances) {
   return `<span class="mh-chance"><span class="mh-chance-bar" style="width:${max}%"></span><span>${min === max ? `${max}%` : `${min}〜${max}%`}</span></span>`;
 }
 
-function weaknessBlock(weaknesses) {
+function weaknessOf(monster) {
+  return weakness?.monsters?.[monster.n] || null;
+}
+
+function elementIcon(el, label = true) {
+  const icon = ELEMENT_ICONS[el];
+  return `<i class="mh-el-icon" style="--el:${icon.color}" title="${ELEMENT_LABELS[el]}属性"><svg viewBox="0 0 24 24" fill="currentColor">${icon.svg}</svg>${label ? "" : ""}</i>`;
+}
+
+// ◎（無ければ○）の属性
+function bestElements(monster) {
+  const chart = weaknessOf(monster);
+  if (!chart) return [];
+  const best = WEAK_ELEMENTS.filter((el) => chart[el] === "◎");
+  return best.length ? best : WEAK_ELEMENTS.filter((el) => chart[el] === "○");
+}
+
+function weakMark(mark) {
+  const cls = { "◎": "w0", "○": "w1", "▲": "w2", "×": "w3", "無効": "w4" }[mark] || "";
+  return `<span class="mh-weak-mark ${cls}" title="${WEAK_TITLES[mark] || ""}">${escapeHtml(mark || "-")}</span>`;
+}
+
+function weaknessChart(monster) {
+  const chart = weaknessOf(monster);
+  if (!chart) return "";
+  const note = weakness?.notes?.[monster.n];
+  return `
+    <div class="mh-weak-chart">
+      <div class="mh-weak-chart-title">属性の効きやすさ</div>
+      <div class="mh-weak-cells">
+        ${WEAK_ELEMENTS.map((el) => `<div class="mh-weak-cell ${WEAK_ORDER[chart[el]] === 0 ? "best" : ""}">${elementIcon(el)}<small>${ELEMENT_LABELS[el]}</small>${weakMark(chart[el])}</div>`).join("")}
+      </div>
+      ${note ? `<div class="mh-weak-note">※${escapeHtml(note)}</div>` : ""}
+      <div class="mh-muted mh-weak-legend">◎とても有効　○有効　▲やや有効　×効きにくい　無効</div>
+    </div>
+  `;
+}
+
+function weaknessTable() {
+  return `
+    <div class="panel">
+      <h2>弱点早見表</h2>
+      <p class="mh-note">モンスター名を押すと、そのモンスターのドロップ一覧を開きます。◎とても有効　○有効　▲やや有効　×効きにくい</p>
+      <div class="table-wrap">
+        <table class="mh-table mh-weak-table">
+          <thead><tr><th>モンスター</th>${WEAK_ELEMENTS.map((el) => `<th>${elementIcon(el)}</th>`).join("")}</tr></thead>
+          <tbody>
+            ${data.monsters.map((monster) => {
+              const chart = weaknessOf(monster);
+              const note = weakness?.notes?.[monster.n];
+              return `<tr>
+                <td><button type="button" class="mh-weak-name" data-action="monster-open" data-id="${monster.id}">${monsterEmblem(monster)}<span>${escapeHtml(monster.n)}${note ? `<small>※${escapeHtml(note)}</small>` : ""}</span></button></td>
+                ${WEAK_ELEMENTS.map((el) => `<td class="mh-weak-td">${chart ? weakMark(chart[el]) : `<span class="mh-muted">-</span>`}</td>`).join("")}
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function weaknessBlock(weaknesses, hasChart = false) {
   if (!weaknesses?.length) return "";
   const groups = [
-    ["element", "弱点属性"],
+    ...(hasChart ? [] : [["element", "弱点属性"]]),
     ["status", "状態異常"],
     ["effect", "アイテム・その他"],
   ];
@@ -1769,6 +1916,7 @@ const simPickFilters = { type: "", q: "" };
 
 function emptyBuild() {
   return {
+    lb: {},
     w: null, wMode: "", wSkills: [], wAtk: "", wAff: "", wEl: "", wElv: "", wSlots: [], gogma: { series: "", group: "" }, wDecos: [],
     defIn: "",
     a: {}, aDecos: {},
@@ -1785,6 +1933,7 @@ function normalizeBuild(source) {
   build.gogma = { series: "", group: "", ...(build.gogma || {}) };
   build.a = typeof build.a === "object" && build.a ? build.a : {};
   build.aDecos = typeof build.aDecos === "object" && build.aDecos ? build.aDecos : {};
+  build.lb = typeof build.lb === "object" && build.lb ? build.lb : {};
   build.cSkills = Array.isArray(build.cSkills) ? build.cSkills.slice(0, 3) : [];
   build.cSlots = Array.isArray(build.cSlots) ? build.cSlots.slice(0, 3) : [];
   build.cDecos = Array.isArray(build.cDecos) ? build.cDecos.slice(0, 3) : [];
@@ -1911,13 +2060,14 @@ function computeBuild(build) {
   SIM_PARTS.forEach((part) => {
     const piece = build.a[part] && idx.pieces.get(build.a[part]);
     if (!piece) return;
+    const upgrade = upgradeInfo(piece.set.r);
     defense += piece.def || 0;
-    defenseMax += piece.dmax || piece.def || 0;
+    defenseMax += (piece.def || 0) + upgrade.def + (build.lb?.[part] && upgrade.lb ? upgrade.lb.def : 0);
     (piece.res || []).forEach((value, i) => { resist[i] += value; });
     Object.entries(piece.sk).forEach(([id, lv]) => addSkill(id, lv, piece.n));
     if (piece.set.sb) addBonus(piece.set.sb[0], piece.n);
     if (piece.set.gb) addBonus(piece.set.gb[0], piece.n);
-    addDecos(build.aDecos[part] || [], piece.sl);
+    addDecos(build.aDecos[part] || [], simPieceSlots(build, part, piece));
   });
 
   // 護石
@@ -2089,8 +2239,9 @@ function simArmorRow(build, part) {
   const piece = build.a[part] && idx.pieces.get(build.a[part]);
   let extra = "";
   if (piece) {
-    extra += `<div class="mh-sim-meta">${rankBadges([armorRankOf(piece.set)])} ${rarityPill(piece.set.r)} 防御 <b>${piece.def}</b>（最大${piece.dmax ?? "-"}） ${skillList(piece.sk)}</div>`;
-    extra += decoSelectors(piece.sl.map((lv) => ({ on: "armor", lv })), build.aDecos[part] || [], `adeco:${part}`);
+    extra += `<div class="mh-sim-meta">${rankBadges([armorRankOf(piece.set)])} ${rarityPill(piece.set.r)} 防御 <b>${piece.def}</b>（最大${piece.def + upgradeInfo(piece.set.r).def + (build.lb?.[part] && upgradeInfo(piece.set.r).lb ? upgradeInfo(piece.set.r).lb.def : 0)}） ${slotText(simPieceSlots(build, part, piece))} ${skillList(piece.sk)}</div>`;
+    if (upgradeInfo(piece.set.r).lb) extra += `<div class="mh-sim-sub"><label class="mh-check"><input type="checkbox" data-sim="alb:${part}" ${build.lb?.[part] ? "checked" : ""} /> 限界突破済み（スロット・防御の上限が上がる）</label></div>`;
+    extra += decoSelectors(simPieceSlots(build, part, piece).map((lv) => ({ on: "armor", lv })), build.aDecos[part] || [], `adeco:${part}`);
   }
   return `<div class="mh-sim-row">${simSlotHead(PIECE_LABELS[part], piece?.n, extra, part)}</div>`;
 }
@@ -2185,7 +2336,7 @@ function simResult(result) {
         <div><dt>攻撃力</dt><dd>${atk ?? "-"}</dd></div>
         <div><dt>会心率</dt><dd>${aff ?? 0}%</dd></div>
         <div><dt>属性</dt><dd>${weapon ? escapeHtml(elementText(stats.element)) : "-"}</dd></div>
-        <div><dt>防御力${build.defIn !== "" ? "（入力）" : ""}</dt><dd>${build.defIn !== "" ? Number(build.defIn) : result.defense}<small>初期 ${result.defense}／強化最大 ${result.defenseMax}</small></dd></div>
+        <div><dt>防御力${build.defIn !== "" ? "（入力）" : ""}</dt><dd>${build.defIn !== "" ? Number(build.defIn) : result.defense}<small>初期 ${result.defense}／強化最大 ${result.defenseMax}${Object.values(build.lb).some(Boolean) ? "（限界突破込み）" : ""}</small></dd></div>
         ${RESIST_LABELS.map((label, i) => `<div><dt>${label}耐性</dt><dd class="${result.resist[i] < 0 ? "mh-minus" : ""}">${result.resist[i]}</dd></div>`).join("")}
       </dl>
       <label class="mh-field mh-def-input"><span>防御力（強化後の値をゲーム画面から入力・空欄で初期値）</span><input class="mh-num" type="number" inputmode="numeric" data-sim="defin" value="${escapeHtml(build.defIn)}" placeholder="${result.defense}" /></label>
@@ -2213,17 +2364,29 @@ function simResult(result) {
   `;
 }
 
+function simPieceSlots(build, part, piece) {
+  return build.lb?.[part] && upgradeInfo(piece.set.r).lb ? limitBreakSlots(piece.sl, piece.set.r) : piece.sl;
+}
+
 function simUpgradeSummary(build) {
   const pieces = SIM_PARTS.map((part) => build.a[part] && idx.pieces.get(build.a[part])).filter(Boolean);
   if (!pieces.length) return "";
-  const total = pieces.reduce((sum, piece) => {
+  const total = SIM_PARTS.reduce((sum, part) => {
+    const piece = build.a[part] && idx.pieces.get(build.a[part]);
+    if (!piece) return sum;
     const info = upgradeInfo(piece.set.r);
-    return { points: sum.points + info.points, zenny: sum.zenny + info.zenny, def: sum.def + info.def };
-  }, { points: 0, zenny: 0, def: 0 });
+    const lb = build.lb?.[part] && info.lb ? info.lb : null;
+    return {
+      points: sum.points + info.points + (lb ? lb.points : 0),
+      zenny: sum.zenny + info.zenny + (lb ? lb.zenny + (lb.zennyBreak || 0) : 0),
+      def: sum.def + info.def + (lb ? lb.def : 0),
+      lbCount: sum.lbCount + (lb ? 1 : 0),
+    };
+  }, { points: 0, zenny: 0, def: 0, lbCount: 0 });
   if (!total.points) return "";
   return `
     <div class="mh-upgrade">
-      <div><b>防具${pieces.length}部位を最大まで強化</b>（防御 +${total.def}）</div>
+      <div><b>防具${pieces.length}部位を最大まで強化</b>（防御 +${total.def}${total.lbCount ? `、限界突破${total.lbCount}部位を含む` : ""}）</div>
       <div>強化ポイント <b>${total.points.toLocaleString()}pt</b> ／ 費用 <b>${total.zenny.toLocaleString()}z</b></div>
       <div class="mh-muted">鎧玉の例: ${sphereText(total.points)}</div>
     </div>
@@ -2347,6 +2510,7 @@ function onSimClick(action, button) {
     } else {
       build.a[simPick] = id;
       build.aDecos[simPick] = [];
+      delete build.lb[simPick];
     }
     app.querySelector("[data-role='sim-dialog']")?.close();
     simPick = null;
@@ -2356,6 +2520,7 @@ function onSimClick(action, button) {
     else {
       delete build.a[slot];
       delete build.aDecos[slot];
+      delete build.lb[slot];
     }
   } else if (action === "sim-reset") {
     if (!confirm("装備をすべて外しますか？")) return;
@@ -2424,6 +2589,11 @@ function onSimChange(field) {
     build.aDecos[part] ||= [];
     build.aDecos[part][index] = value || null;
   } else if (key === "cdeco") build.cDecos[index] = value || null;
+  else if (key.startsWith("alb:")) {
+    const part = key.slice(4);
+    build.lb[part] = field.checked;
+    build.aDecos[part] = [];
+  }
   else if (key === "wskill" || key === "cskill") {
     const list = key === "wskill" ? build.wSkills : build.cSkills;
     list[index] = [value, 1];
