@@ -1,0 +1,129 @@
+:root {
+  --blue: #f5b041;
+  --purple: #8fd3b6;
+  --white: #f7f3ea;
+  --ink: #d6d9cf;
+  --muted: #98a39a;
+  --panel: rgba(18, 34, 28, 0.82);
+  --line: rgba(160, 190, 170, 0.22);
+  --danger: #ff5d73;
+  color-scheme: dark;
+  font-family: "Inter", "Noto Sans JP", "Yu Gothic UI", "Hiragino Sans", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { background: #07110d; scroll-behavior: smooth; }
+
+body {
+  overflow-x: hidden;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--white);
+  background:
+    radial-gradient(circle at 15% 0%, rgba(245, 176, 65, 0.16), transparent 32rem),
+    radial-gradient(circle at 90% 10%, rgba(143, 211, 182, 0.14), transparent 30rem),
+    linear-gradient(160deg, #07110d 0%, #0d1c16 50%, #13261e 100%);
+}
+
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; }
+h1, h2, h3, p { margin: 0; }
+
+.site-shell { min-height: 100vh; overflow: hidden; }
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid var(--line);
+  background: rgba(7, 17, 13, 0.85);
+  backdrop-filter: blur(16px);
+}
+
+.header-inner, .section-inner, .footer-inner {
+  width: min(1160px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.header-inner { display: flex; align-items: center; min-height: 68px; }
+
+.brand { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
+.brand-mark { width: 42px; height: 42px; flex: 0 0 auto; }
+.brand-text { display: grid; gap: 2px; }
+.brand-title { font-size: clamp(1rem, 2.6vw, 1.2rem); font-weight: 900; line-height: 1.1; }
+.brand-sub { color: var(--muted); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+
+.hero { position: relative; border-bottom: 1px solid var(--line); }
+.page-hero { padding: 44px 0 28px; }
+.eyebrow { color: var(--blue); font-size: 0.8rem; font-weight: 900; letter-spacing: 0.04em; }
+.hero h1 { margin-top: 8px; font-weight: 950; line-height: 1.08; overflow-wrap: anywhere; }
+.hero-copy { margin-top: 14px; max-width: 760px; color: var(--ink); line-height: 1.85; }
+
+.section { padding: 36px 0; }
+.section h2 { font-size: clamp(1.3rem, 3.4vw, 1.9rem); line-height: 1.2; }
+
+.card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.card-body { display: grid; gap: 12px; padding: 16px; }
+.card h3 { font-size: 1.05rem; line-height: 1.45; overflow-wrap: anywhere; }
+.card p { color: var(--ink); line-height: 1.7; }
+
+.meta-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.pill {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(245, 176, 65, 0.36);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: rgba(245, 176, 65, 0.08);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+.pill.purple { border-color: rgba(143, 211, 182, 0.46); background: rgba(143, 211, 182, 0.1); }
+
+.panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  background: var(--panel);
+}
+.panel + .panel { margin-top: 16px; }
+.panel h2, .panel h3 { margin-bottom: 12px; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+th { color: var(--white); background: rgba(245, 176, 65, 0.1); font-size: 0.8rem; }
+td { color: var(--ink); }
+tr:last-child td { border-bottom: 0; }
+
+.empty {
+  border: 1px dashed rgba(160, 190, 170, 0.4);
+  border-radius: 8px;
+  padding: 26px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.7;
+}
+
+.site-footer { border-top: 1px solid var(--line); padding: 26px 0 34px; color: var(--muted); font-size: 0.84rem; }
+
+@media (max-width: 520px) {
+  .header-inner, .section-inner, .footer-inner { width: min(100% - 24px, 1160px); }
+  .page-hero { padding: 28px 0 20px; }
+  .section { padding: 24px 0; }
+  .panel, .card-body { padding: 12px; }
+  th, td { padding: 8px; }
+}
