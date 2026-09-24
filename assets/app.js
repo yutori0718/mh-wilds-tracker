@@ -13,7 +13,7 @@ const TABS = [
   { id: "weapons", label: "武器" },
   { id: "armor", label: "防具" },
   { id: "charms", label: "護石" },
-  { id: "decos", label: "珠（装飾品）" },
+  { id: "decos", label: "装飾品" },
   { id: "items", label: "素材" },
   { id: "monsters", label: "モンスター別ドロップ" },
   { id: "artian", label: "巨戟アーティア" },
@@ -581,7 +581,7 @@ function shell(content) {
       <section class="hero page-hero mh-hero">
         <div class="section-inner">
           <div class="eyebrow">MONSTER HUNTER WILDS</div>
-          <h1>素材・護石・珠トラッカー</h1>
+          <h1>素材・護石・装飾品トラッカー</h1>
           <p class="hero-copy">欲しい武器・防具・護石を選ぶと必要な素材を自動で合計。モンスターごとのドロップ率も確認できます。人ごとにリストを作れて、共有URLで友達とも見せ合えます。</p>
         </div>
       </section>
@@ -724,8 +724,8 @@ function renderListPanel() {
         ${wants.length ? `<ul class="mh-want-list">${wants.map(wantRow).join("")}</ul>` : `<div class="empty">まだありません。「武器」「防具」「護石」タブで <b>＋欲しい</b> を押すと追加されます。</div>`}
       </div>
       <div class="panel">
-        <h2>欲しい珠 <small>${wantedDecos.length}件</small></h2>
-        ${wantedDecos.length ? `<ul class="mh-want-list">${wantedDecos.map(([id]) => decoRow(idx.decos.get(id))).join("")}</ul>` : `<div class="empty">「珠（装飾品）」タブで欲しい数を設定できます。</div>`}
+        <h2>欲しい装飾品 <small>${wantedDecos.length}件</small></h2>
+        ${wantedDecos.length ? `<ul class="mh-want-list">${wantedDecos.map(([id]) => decoRow(idx.decos.get(id))).join("")}</ul>` : `<div class="empty">「装飾品」タブで欲しい数を設定できます。</div>`}
       </div>
     </div>
 
@@ -859,7 +859,7 @@ function renderPartyPanel() {
       <p class="mh-note">このブラウザに登録されている人の一覧です。友達の共有URLを開くとここに追加されます。</p>
       <div class="table-wrap">
         <table class="mh-table">
-          <thead><tr><th>名前</th><th>欲しい装備</th><th>残り素材</th><th>欲しい珠（未所持）</th></tr></thead>
+          <thead><tr><th>名前</th><th>欲しい装備</th><th>残り素材</th><th>欲しい装飾品（未所持）</th></tr></thead>
           <tbody>
             ${summaries.map((summary) => `
               <tr>
@@ -1039,7 +1039,7 @@ function charmCard(charm) {
 }
 
 // ---------------------------------------------------------------------------
-// 珠タブ
+// 装飾品タブ
 
 function decoControls() {
   const f = filters.decos;
@@ -1057,7 +1057,7 @@ function decoControls() {
         ${[1, 2, 3, 4].map((lv) => `<option value="${lv}" ${f.lv === String(lv) ? "selected" : ""}>Lv${lv}</option>`).join("")}
       </select>
     </label>
-    ${searchField(f.q, "珠の名前・スキルで検索")}
+    ${searchField(f.q, "装飾品の名前・スキルで検索")}
     ${wantedOnlyField(f.wantedOnly, "欲しい・所持のみ")}
   `;
 }
