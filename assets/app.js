@@ -55,6 +55,7 @@ const ITEM_COLORS = {
   ultramarine: "#3553d8", rose: "#e8567a", "dark-purple": "#6e3aa3", "sage-green": "#98b089",
   "moss-green": "#6d7d3b", lemon: "#f5f07a", emerald: "#1fbf8f",
 };
+const ELEMENT_ORDER = ["fire", "water", "thunder", "ice", "dragon", "poison", "paralysis", "sleep", "blastblight", "none"];
 const SLOT_MARKS = ["", "①", "②", "③", "④"];
 
 const app = document.querySelector("#app");
@@ -76,11 +77,11 @@ let store = loadStore();
 let currentTab = "list";
 let pendingImport = null;
 const filters = {
-  weapons: { type: "great-sword", rarity: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
+  weapons: { type: "great-sword", group: "tree", mon: "", el: "", rarity: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
   armor: { rarity: "", q: "", wantedOnly: false, limit: 30 },
   charms: { q: "", wantedOnly: false, limit: PAGE_SIZE },
   decos: { on: "", lv: "", q: "", wantedOnly: false, limit: PAGE_SIZE },
-  items: { rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
+  items: { group: "category", cat: "", rarity: "", q: "", neededOnly: false, limit: PAGE_SIZE },
   monsters: { id: "", rank: "high", q: "" },
   artian: { kind: "", q: "" },
   list: { hideDone: false },
@@ -705,6 +706,42 @@ function paged(list, render, wrapClass = "mh-cards") {
   `;
 }
 
+// 見出し付きで表示する（list は groupOf の順に並んでいること）
+function pagedGrouped(list, render, groupOf, wrapClass = "mh-cards") {
+  const { limit } = filters[currentTab];
+  if (!list.length) return `<div class="empty">該当するものがありません。</div>`;
+  const totals = new Map();
+  list.forEach((entry) => {
+    const { key } = groupOf(entry);
+    totals.set(key, (totals.get(key) || 0) + 1);
+  });
+  const sections = [];
+  list.slice(0, limit).forEach((entry) => {
+    const group = groupOf(entry);
+    if (!sections.length || sections[sections.length - 1].key !== group.key) sections.push({ ...group, entries: [] });
+    sections[sections.length - 1].entries.push(entry);
+  });
+  return `
+    <div class="mh-result-count">${list.length}件・${totals.size}グループ</div>
+    ${sections.map((section) => `
+      <h3 class="mh-group-head">${section.icon || ""}<span>${escapeHtml(section.label)}</span><small>${totals.get(section.key)}件</small></h3>
+      <div class="${wrapClass}">${section.entries.map(render).join("")}</div>`).join("")}
+    ${list.length > limit ? `<button type="button" class="mh-btn mh-more" data-action="more">さらに表示（残り${list.length - limit}件）</button>` : ""}
+  `;
+}
+
+// 並べ替え用の順位（元の並びを保つ安定ソート）
+function sortByGroup(list, rankOf) {
+  return list.map((entry, index) => ({ entry, index, rank: rankOf(entry) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ entry }) => entry);
+}
+
+function monsterRank(monsterId) {
+  const index = data.monsters.findIndex((monster) => monster.id === monsterId);
+  return index < 0 ? 999 : index;
+}
+
 // ---------------------------------------------------------------------------
 // 欲しいものタブ
 
@@ -908,8 +945,26 @@ function weaponControls() {
         ${data.weaponTypes.map((type) => `<option value="${type.id}" ${f.type === type.id ? "selected" : ""}>${type.n}</option>`).join("")}
       </select>
     </label>
+    <label class="mh-field"><span>分類</span>
+      <select data-filter="group">
+        ${[["tree", "派生ツリー順"], ["monster", "モンスター別"], ["element", "属性別"]].map(([value, label]) => `<option value="${value}" ${f.group === value ? "selected" : ""}>${label}</option>`).join("")}
+      </select>
+    </label>
+    <label class="mh-field"><span>モンスター</span>
+      <select data-filter="mon">
+        <option value="">すべて</option>
+        ${data.monsters.filter((monster) => data.weapons.some((weapon) => weapon.mon === monster.id)).map((monster) => `<option value="${monster.id}" ${f.mon === monster.id ? "selected" : ""}>${escapeHtml(monster.n)}</option>`).join("")}
+        <option value="other" ${f.mon === "other" ? "selected" : ""}>モンスター以外（鉱石・骨など）</option>
+      </select>
+    </label>
+    <label class="mh-field"><span>属性</span>
+      <select data-filter="el">
+        <option value="">すべて</option>
+        ${ELEMENT_ORDER.map((el) => `<option value="${el}" ${f.el === el ? "selected" : ""}>${el === "none" ? "無属性" : ELEMENT_LABELS[el]}</option>`).join("")}
+      </select>
+    </label>
     ${rarityFilter(f.rarity)}
-    ${searchField(f.q, "武器名・スキル・素材名で検索")}
+    ${searchField(f.q, "武器名・スキル・素材名・モンスター名で検索")}
     ${wantedOnlyField(f.wantedOnly)}
   `;
 }
@@ -919,10 +974,41 @@ function weaponResults() {
   const target = profile();
   const list = data.weapons.filter((weapon) =>
     (!f.type || weapon.t === f.type)
+    && (!f.mon || (f.mon === "other" ? !weapon.mon : weapon.mon === f.mon))
+    && (!f.el || weaponElement(weapon) === f.el)
     && (!f.rarity || String(weapon.r) === f.rarity)
     && (!f.wantedOnly || target.wants[`w:${weapon.id}`])
-    && matches(f.q, [weapon.n, skillText(weapon.sk), materialText(weapon.in)]));
+    && matches(f.q, [weapon.n, weapon.sr, idx.monsters.get(weapon.mon)?.n, skillText(weapon.sk), materialText(weapon.in)]));
+  if (f.group === "monster") {
+    const otherOrder = [];
+    const groupOf = (weapon) => {
+      if (weapon.mon) {
+        const monster = idx.monsters.get(weapon.mon);
+        return { key: weapon.mon, label: monster.n, icon: monsterEmblem(monster) };
+      }
+      const label = weapon.sr ? `${weapon.sr}（モンスター以外）` : "アーティア・特殊な武器";
+      return { key: `sr:${label}`, label };
+    };
+    const sorted = sortByGroup(list, (weapon) => {
+      if (weapon.mon) return monsterRank(weapon.mon);
+      const { key } = groupOf(weapon);
+      if (!otherOrder.includes(key)) otherOrder.push(key);
+      return 1000 + otherOrder.indexOf(key);
+    });
+    return pagedGrouped(sorted, weaponCard, groupOf);
+  }
+  if (f.group === "element") {
+    const sorted = sortByGroup(list, (weapon) => ELEMENT_ORDER.indexOf(weaponElement(weapon)));
+    return pagedGrouped(sorted, weaponCard, (weapon) => {
+      const el = weaponElement(weapon);
+      return { key: el, label: el === "none" ? "無属性" : `${ELEMENT_LABELS[el]}属性`, icon: `<i class="mh-el-dot el-${el}"></i>` };
+    });
+  }
   return paged(list, weaponCard);
+}
+
+function weaponElement(weapon) {
+  return weapon.el ? weapon.el[0] : "none";
 }
 
 function weaponCard(weapon) {
@@ -945,6 +1031,7 @@ function weaponCard(weapon) {
           <div><dt>スロット</dt><dd>${slotText(weapon.sl)}</dd></div>
         </dl>
         ${skillList(weapon.sk)}
+        ${weapon.sr || weapon.mon ? `<div class="mh-note">${weapon.sr ? escapeHtml(weapon.sr) : ""}${weapon.mon ? `（${escapeHtml(idx.monsters.get(weapon.mon)?.n || "")}）` : ""}</div>` : ""}
         ${prev ? `<div class="mh-note">派生元: ${escapeHtml(prev.n)}（強化）</div>` : ""}
         ${materialList(weapon.in, weapon.z)}
       </div>
@@ -1111,6 +1198,25 @@ function decoStepper(id, field, label, value) {
 function itemControls() {
   const f = filters.items;
   return `
+    <label class="mh-field"><span>表示</span>
+      <select data-filter="group">
+        <option value="category" ${f.group === "category" ? "selected" : ""}>分類ごと</option>
+        <option value="id" ${f.group === "id" ? "selected" : ""}>アイテム番号順</option>
+      </select>
+    </label>
+    <label class="mh-field"><span>分類</span>
+      <select data-filter="cat">
+        <option value="">すべて</option>
+        <optgroup label="モンスター素材">
+          <option value="mon" ${f.cat === "mon" ? "selected" : ""}>大型モンスターの素材（すべて）</option>
+          ${data.monsters.filter((monster) => data.items.some((item) => item.mon === monster.id)).map((monster) => `<option value="m:${monster.id}" ${f.cat === `m:${monster.id}` ? "selected" : ""}>${escapeHtml(monster.n)}</option>`).join("")}
+          <option value="shared" ${f.cat === "shared" ? "selected" : ""}>複数モンスター共通</option>
+        </optgroup>
+        <optgroup label="その他の素材">
+          ${data.materialCategories.map((cat) => `<option value="${cat.id}" ${f.cat === cat.id ? "selected" : ""}>${cat.n}</option>`).join("")}
+        </optgroup>
+      </select>
+    </label>
     ${rarityFilter(f.rarity)}
     ${searchField(f.q, "素材名・モンスター名で検索")}
     <label class="mh-check"><input type="checkbox" data-filter="neededOnly" ${f.neededOnly ? "checked" : ""} /> 自分に必要な素材のみ</label>
@@ -1121,10 +1227,31 @@ function itemResults() {
   const f = filters.items;
   const needs = new Map(computeNeeds(profile()).rows.map((row) => [row.itemId, row]));
   const list = data.items.filter((item) =>
-    (!f.rarity || String(item.r) === f.rarity)
+    matchesItemCategory(item, f.cat)
+    && (!f.rarity || String(item.r) === f.rarity)
     && (!f.neededOnly || needs.has(item.id))
-    && matches(f.q, [item.n, (item.src || []).map((source) => idx.monsters.get(source[0])?.n).join(" ")]));
-  return paged(list, (item) => itemCard(item, needs.get(item.id)));
+    && matches(f.q, [item.n, itemGroup(item).label, (item.src || []).map((source) => idx.monsters.get(source[0])?.n).join(" ")]));
+  const render = (item) => itemCard(item, needs.get(item.id));
+  if (f.group === "id") return paged(list, render);
+  return pagedGrouped(sortByGroup(list, (item) => itemGroup(item).rank), render, itemGroup);
+}
+
+function matchesItemCategory(item, cat) {
+  if (!cat) return true;
+  if (cat === "mon") return Boolean(item.mon);
+  if (cat.startsWith("m:")) return item.mon === cat.slice(2);
+  return item.cat === cat;
+}
+
+// 素材の分類: 大型モンスターごと（ハンターノート順）→ 複数モンスター共通 → 鉱石・骨など
+function itemGroup(item) {
+  if (item.mon) {
+    const monster = idx.monsters.get(item.mon);
+    return { key: `m:${item.mon}`, label: `${monster?.n || "?"}の素材`, rank: monsterRank(item.mon), icon: monster ? monsterEmblem(monster) : "" };
+  }
+  if (item.cat === "shared") return { key: "shared", label: "複数モンスター共通の素材", rank: 900 };
+  const index = data.materialCategories.findIndex((cat) => cat.id === item.cat);
+  return { key: item.cat, label: data.materialCategories[index]?.n || "その他", rank: 1000 + index };
 }
 
 function itemCard(item, need) {

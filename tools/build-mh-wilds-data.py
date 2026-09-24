@@ -21,6 +21,24 @@ HUNTER_NOTES_ORDER = [
     "タマミツネ", "ラギアクルス", "セルレギオス", "オメガ・プラネテス", "ゴグマジオス",
 ]
 
+# 素材の分類（ゲーム内アイコンの種類 → 分類名）。モンスター固有の素材は各モンスターに分類する。
+MATERIAL_CATEGORIES = [
+    ("ore", "鉱石・結晶", {"ore", "crystal"}),
+    ("bone", "骨", {"bone"}),
+    ("sac", "袋・体液", {"powder", "extract"}),
+    ("small", "小型モンスター・環境生物の素材", {"hide", "scale", "shell", "skull", "claw", "medulla", "gem", "wing", "tail", "plate"}),
+    ("bug", "虫・ハチミツ", {"bug", "honey"}),
+    ("food", "食材・植物・卵", {"plant", "mushroom", "seed", "fish", "egg", "cooking-cheese", "cooking-egg",
+                              "cooking-garlic", "cooking-mushroom", "cooking-shellfish"}),
+    ("sphere", "鎧玉", {"armor-sphere"}),
+    ("ticket", "チケット・コイン・証", {"certificate", "voucher", "coin"}),
+    ("other", "その他", set()),
+]
+# 素材名の接頭辞だけでは判別できないモンスター（護竜は通常種と素材の出どころが重なる）
+ALIAS_OVERRIDES = {"護鎖刃竜": "護竜アルシュベルド"}
+# モンスター固有とみなさない（汎用素材の）アイコン
+GENERIC_ICONS = {"ore", "crystal", "powder", "bone", "armor-sphere", "bug", "egg", "plant", "mushroom", "seed", "fish"}
+
 WEAPON_FILES = [
     ("GreatSword", "great-sword", "大剣"),
     ("LongSword", "long-sword", "太刀"),
@@ -66,6 +84,8 @@ def main():
         for s in skill_list
     }
 
+    series_names = {str(s["game_id"]): ja(s["names"]) for s in load("WeaponSeries.json")}
+
     # 武器
     weapons = []
     for file, kind, _ in WEAPON_FILES:
@@ -85,6 +105,9 @@ def main():
                 # アーティア等のツリー外の武器（素材なし・初期武器以外）は末尾へ
                 "_sort": (not c.get("inputs") and w["game_id"] != 1, c.get("row") or 0, c.get("column") or 0, w["game_id"]),
             }
+            series_name = series_names.get(str(w.get("series_id")))
+            if series_name:
+                entry["sr"] = series_name
             if c.get("previous_id") is not None:
                 entry["prev"] = f"{kind}:{c['previous_id']}"
             el = [s for s in (w.get("specials") or []) if s.get("kind") in ("element", "status")]
@@ -195,6 +218,7 @@ def main():
         desc = ja(it.get("descriptions"))
         if desc:
             entry["d"] = desc.replace("\r\n", "")
+        entry["_icon"] = it.get("icon") or ""
         src = sources.get(iid)
         if src:
             entry["src"] = [
@@ -202,6 +226,8 @@ def main():
                 for (mid, rank), v in sorted(src.items(), key=lambda kv: (kv[0][1] != "high", -kv[1]["c"]))
             ]
         items.append(entry)
+
+    classify_materials(items, monsters, weapons)
 
     # 素材はゲーム内のアイテムID順（アイテムボックスの並び）
     items.sort(key=lambda i: int(i["id"]))
@@ -213,6 +239,7 @@ def main():
         print("warning: unknown item ids", sorted(missing))
 
     data = {
+        "materialCategories": [{"id": key, "n": name} for key, name, _ in MATERIAL_CATEGORIES],
         "source": "MHDB (https://github.com/LartTyler/mhdb-wilds-data)",
         "weaponTypes": [{"id": kind, "n": name} for _, kind, name in WEAPON_FILES],
         "skills": {k: v for k, v in skill_map.items() if k in used_skills},
@@ -226,6 +253,59 @@ def main():
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)",
           {k: len(v) for k, v in data.items() if isinstance(v, (list, dict))})
+
+
+def name_prefix(name):
+    return name.split("の", 1)[0] if "の" in name else None
+
+
+def classify_materials(items, monsters, weapons):
+    """素材を「モンスター固有（mon）」か分類（cat）に振り分け、武器にも元になったモンスター（mon）を付ける。"""
+    # モンスターの別名（例: リオレイア → 雌火竜）を、そのモンスターだけが落とす素材名の接頭辞から推定する
+    prefix_counts = {}
+    for item in items:
+        monster_ids = {src[0] for src in item.get("src", [])}
+        prefix = name_prefix(item["n"])
+        if len(monster_ids) == 1 and prefix:
+            counts = prefix_counts.setdefault(next(iter(monster_ids)), {})
+            counts[prefix] = counts.get(prefix, 0) + 1
+    alias = {mid: max(counts, key=counts.get) for mid, counts in prefix_counts.items()}
+    alias_to_monster = {name: mid for mid, name in alias.items()}
+    monster_by_name = {m["n"]: m["id"] for m in monsters}
+    for name, monster_name in ALIAS_OVERRIDES.items():
+        if monster_name in monster_by_name:
+            alias_to_monster[name] = monster_by_name[monster_name]
+
+    for item in items:
+        icon = item.pop("_icon")
+        monster_ids = {src[0] for src in item.get("src", [])}
+        prefix = name_prefix(item["n"])
+        if prefix in alias_to_monster:
+            item["mon"] = alias_to_monster[prefix]
+        elif len(monster_ids) == 1 and icon not in GENERIC_ICONS:
+            item["mon"] = next(iter(monster_ids))
+        elif len(monster_ids) > 1 and icon not in GENERIC_ICONS:
+            item["cat"] = "shared"
+        else:
+            item["cat"] = next((key for key, _, icons in MATERIAL_CATEGORIES if icon in icons), "other")
+
+    # 武器: 派生名（例: 雌火竜派生）→ モンスター。
+    # 鉱石・骨素材などモンスター以外の派生はそのまま派生名で分類し、派生名の無い武器だけ素材から推定する
+    item_monster = {item["id"]: item.get("mon") for item in items}
+    for weapon in weapons:
+        series_alias = (weapon.get("sr") or "").removesuffix("派生")
+        if series_alias in alias_to_monster:
+            weapon["mon"] = alias_to_monster[series_alias]
+            continue
+        if weapon.get("sr"):
+            continue
+        score = {}
+        for item_id, amount in weapon["in"].items():
+            mid = item_monster.get(item_id)
+            if mid:
+                score[mid] = score.get(mid, 0) + amount
+        if score:
+            weapon["mon"] = max(score, key=score.get)
 
 
 if __name__ == "__main__":

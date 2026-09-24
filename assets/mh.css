@@ -851,3 +851,40 @@
   font-size: 0.7rem;
   font-weight: 800;
 }
+
+/* 分類見出し */
+.mh-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 10px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  font-size: 1.08rem;
+}
+
+.mh-group-head:first-of-type {
+  margin-top: 4px;
+}
+
+.mh-group-head small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.mh-el-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #9aa39c;
+}
+
+.mh-el-dot.el-fire { background: #ff6a3d; }
+.mh-el-dot.el-water { background: #3fa4ff; }
+.mh-el-dot.el-thunder { background: #ffd83a; }
+.mh-el-dot.el-ice { background: #9be7ff; }
+.mh-el-dot.el-dragon { background: #b35cff; }
+.mh-el-dot.el-poison { background: #a24bd6; }
+.mh-el-dot.el-paralysis { background: #f2e65a; }
+.mh-el-dot.el-sleep { background: #6fa8dc; }
+.mh-el-dot.el-blastblight { background: #f59a2f; }
