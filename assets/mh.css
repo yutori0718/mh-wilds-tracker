@@ -1246,3 +1246,24 @@
 .mh-card-head .meta-row {
   flex: 0 0 auto;
 }
+
+/* 防具強化 */
+.mh-upgrade {
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(143, 211, 182, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(143, 211, 182, 0.06);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.mh-set-upgrade {
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
+.mh-sphere-guide ul {
+  max-height: none;
+}

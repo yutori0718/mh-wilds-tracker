@@ -4,7 +4,7 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240529";
+const VERSION = "202609240535";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const STORAGE_KEY = "mh-wilds-tracker-v1";
@@ -77,6 +77,14 @@ const SPECIES_HUES = {
   "飛竜種": 8, "牙獣種": 30, "鳥竜種": 300, "海竜種": 200, "獣竜種": 20, "両生種": 95,
   "鋏角種": 330, "頭足種": 265, "造竜種": 170, "亜龍種": 280, "古龍種": 45, "その他": 210,
 };
+// 鎧玉1個あたりの強化ポイントと入手目安（大きい順）
+const ARMOR_SPHERES = [
+  { n: "重鎧玉", pt: 5000, from: "★7クエスト以上" },
+  { n: "堅鎧玉", pt: 1000, from: "★6クエスト以上" },
+  { n: "尖鎧玉", pt: 200, from: "★4クエスト以上" },
+  { n: "上鎧玉", pt: 50, from: "★3クエスト以上" },
+  { n: "鎧玉", pt: 10, from: "★2クエスト以上" },
+];
 const SLOT_MARKS = ["", "①", "②", "③", "④"];
 
 const app = document.querySelector("#app");
@@ -232,6 +240,7 @@ function profile() {
 function computeNeeds(target) {
   const needed = new Map();
   let zenny = 0;
+  let upgradePoints = 0;
   Object.entries(target.wants).forEach(([key, want]) => {
     const info = resolveWant(key);
     if (!info) return;
@@ -243,13 +252,22 @@ function computeNeeds(target) {
         needed.set(itemId, (needed.get(itemId) || 0) + amount * count);
       });
     });
+    if (info.kind === "a" && want.upg) {
+      const upgrade = upgradeInfo(info.entity.set.r);
+      zenny += upgrade.zenny * count;
+      upgradePoints += upgrade.points * count;
+    }
+  });
+  // 強化ポイントは大きい鎧玉から順に割り当てて、必要素材に加える
+  sphereMix(upgradePoints).forEach((entry) => {
+    if (entry.item) needed.set(entry.item.id, (needed.get(entry.item.id) || 0) + entry.count);
   });
   const rows = [...needed.entries()].map(([itemId, need]) => {
     const owned = target.owned[itemId] || 0;
     return { itemId, item: idx.items.get(itemId), need, owned, remain: Math.max(0, need - owned) };
   });
   rows.sort((a, b) => (a.remain === 0) - (b.remain === 0) || (b.item?.r || 0) - (a.item?.r || 0) || (a.item?.n || "").localeCompare(b.item?.n || "", "ja"));
-  return { rows, zenny };
+  return { rows, zenny, upgradePoints };
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +321,7 @@ function sanitizeWants(source) {
   const result = {};
   Object.entries(source || {}).forEach(([key, value]) => {
     if (!resolveWant(key)) return;
-    result[key] = { n: Math.max(1, Math.min(99, Math.floor(Number(value?.n) || 1))), ...(value?.chain ? { chain: true } : {}) };
+    result[key] = { n: Math.max(1, Math.min(99, Math.floor(Number(value?.n) || 1))), ...(value?.chain ? { chain: true } : {}), ...(value?.upg ? { upg: true } : {}) };
   });
   return result;
 }
@@ -558,6 +576,13 @@ function onChange(event) {
     renderAll();
     return;
   }
+  if (field.dataset.upg) {
+    const want = target.wants[field.dataset.upg];
+    if (want) want.upg = field.checked;
+    saveStore();
+    renderPanel();
+    return;
+  }
   if (field.dataset.chain) {
     const want = target.wants[field.dataset.chain];
     if (want) want.chain = field.checked;
@@ -786,6 +811,54 @@ function armorRankOf(set) {
   return set.r <= 4 ? "low" : "high";
 }
 
+// 防具を最大まで強化するのに必要な分（レア度ごとのデータから）
+function upgradeInfo(rarity) {
+  const steps = data.armorUpgrades?.[String(rarity)] || [];
+  return {
+    maxLv: steps.length ? steps[steps.length - 1][0] : 1,
+    def: steps.reduce((sum, step) => sum + step[1], 0),
+    points: steps.reduce((sum, step) => sum + step[2], 0),
+    zenny: steps.reduce((sum, step) => sum + step[3], 0),
+  };
+}
+
+// 必要ポイントを大きい鎧玉から順に割り当てた個数
+function sphereMix(points) {
+  let rest = points;
+  return ARMOR_SPHERES.map((sphere) => {
+    const count = sphere.pt === 10 ? Math.ceil(rest / sphere.pt) : Math.floor(rest / sphere.pt);
+    rest -= count * sphere.pt;
+    return { ...sphere, item: data.items.find((item) => item.n === sphere.n), count: Math.max(0, count) };
+  }).filter((entry) => entry.count > 0);
+}
+
+function sphereText(points) {
+  if (!points) return "";
+  return sphereMix(points).map((entry) => `${escapeHtml(entry.n)}×${entry.count}`).join(" + ");
+}
+
+function upgradeLine(rarity, baseDef, count = 1) {
+  const info = upgradeInfo(rarity);
+  if (!info.points) return "";
+  return `
+    <div class="mh-upgrade">
+      <div><b>最大強化 Lv${info.maxLv}</b>${baseDef !== undefined ? `（防御 ${baseDef} → ${baseDef + info.def}）` : ""}</div>
+      <div>強化ポイント <b>${(info.points * count).toLocaleString()}pt</b> ／ 費用 <b>${(info.zenny * count).toLocaleString()}z</b></div>
+      <div class="mh-muted">鎧玉の例: ${sphereText(info.points * count)}</div>
+    </div>
+  `;
+}
+
+function sphereGuide() {
+  return `
+    <details class="mh-details mh-sphere-guide">
+      <summary>鎧玉のポイントと入手目安</summary>
+      <ul>${ARMOR_SPHERES.map((sphere) => `<li><b>${sphere.n}</b> ${sphere.pt.toLocaleString()}pt（${sphere.from}）</li>`).join("")}</ul>
+      <p class="mh-note">「鎧玉の例」は大きい鎧玉から順に使った場合の個数です。持っていない鎧玉は小さい鎧玉で置き換えてください（例: 堅鎧玉1個 = 尖鎧玉5個）。</p>
+    </details>
+  `;
+}
+
 function itemRanks(item) {
   const ranks = new Set((item.src || []).map((source) => source[1]));
   if (!ranks.size) ranks.add(item.r <= 4 ? "low" : "high");
@@ -821,7 +894,7 @@ function renderListPanel() {
   const wants = Object.entries(target.wants)
     .map(([key, want]) => ({ key, want, info: resolveWant(key) }))
     .filter((entry) => entry.info);
-  const { rows, zenny } = computeNeeds(target);
+  const { rows, zenny, upgradePoints } = computeNeeds(target);
   const visibleRows = filters.list.hideDone ? rows.filter((row) => row.remain > 0) : rows;
   const wantedDecos = Object.entries(target.decos).filter(([, deco]) => deco.want > 0);
 
@@ -845,7 +918,7 @@ function renderListPanel() {
           <button type="button" class="mh-btn" data-action="owned-clear">所持数リセット</button>
         </div>
       </div>
-      <p class="mh-note">「所持」に持っている数を入れると、残りの必要数が減ります。必要なお金: <b>${zenny.toLocaleString()}z</b></p>
+      <p class="mh-note">「所持」に持っている数を入れると、残りの必要数が減ります。必要なお金: <b>${zenny.toLocaleString()}z</b>${upgradePoints ? `（防具強化を含む）／ 防具強化ポイント: <b>${upgradePoints.toLocaleString()}pt</b>（鎧玉は大きい順に計算）` : ""}</p>
       <div data-role="need-summary">${needSummary(rows)}</div>
       ${visibleRows.length ? `
         <div class="table-wrap">
@@ -871,6 +944,7 @@ function wantRow({ key, want, info }) {
         <b>${escapeHtml(info.name)}</b>
       </div>
       <div class="mh-row">
+        ${info.kind === "a" && upgradeInfo(info.entity.set.r).points ? `<label class="mh-check" title="最大まで強化する金額と鎧玉を必要素材に加えます"><input type="checkbox" data-upg="${key}" ${want.upg ? "checked" : ""} /> 最大まで強化（Lv${upgradeInfo(info.entity.set.r).maxLv}）</label>` : ""}
         ${isWeapon && chainLength > 1 ? `<label class="mh-check" title="生産から強化までに使う素材をすべて合計します"><input type="checkbox" data-chain="${key}" ${want.chain ? "checked" : ""} /> 生産から全部（${chainLength}段階）</label>` : ""}
         <span class="mh-stepper">
           <button type="button" class="mh-btn small" data-action="want-step" data-key="${key}" data-step="-1" aria-label="減らす">−</button>
@@ -1119,6 +1193,7 @@ function armorControls() {
     ${rankFilter(f.hr)}
     ${rarityFilter(f.rarity)}
     ${searchField(f.q, "防具名・スキル・素材名で検索")}
+    <div class="mh-wide">${sphereGuide()}</div>
     ${wantedOnlyField(f.wantedOnly)}
   `;
 }
@@ -1148,7 +1223,10 @@ function armorCard(set) {
             <div class="meta-row">${rankBadges([armorRankOf(set)])}${rarityPill(set.r)}</div>
             <h3>${escapeHtml(set.n)}</h3>
           </div>
-          <button type="button" class="mh-btn small" data-action="want-set" data-keys="${pieces.map((piece) => `a:${piece.id}`).join(",")}">全部位を欲しい</button>
+          <div class="mh-row">
+            ${upgradeInfo(set.r).points ? `<span class="mh-set-upgrade">${pieces.length}部位を最大強化: <b>${(upgradeInfo(set.r).points * pieces.length).toLocaleString()}pt</b> ／ <b>${(upgradeInfo(set.r).zenny * pieces.length).toLocaleString()}z</b></span>` : ""}
+            <button type="button" class="mh-btn small" data-action="want-set" data-keys="${pieces.map((piece) => `a:${piece.id}`).join(",")}">全部位を欲しい</button>
+          </div>
         </div>
         <div class="mh-pieces">
           ${pieces.map((piece) => `
@@ -1160,6 +1238,7 @@ function armorCard(set) {
               <div class="mh-note">防御 ${piece.def ?? "-"} ／ スロット ${slotText(piece.sl)}</div>
               ${skillList(piece.sk)}
               ${materialList(piece.in, piece.z)}
+              ${upgradeLine(set.r, piece.def)}
             </div>`).join("")}
         </div>
       </div>
@@ -2017,9 +2096,27 @@ function simResult(result) {
         <h2>この装備に必要な素材</h2>
         ${materials.length ? `<button type="button" class="mh-btn small primary" data-action="sim-want-all">欲しいものに全部追加</button>` : ""}
       </div>
+      ${simUpgradeSummary(build)}
       ${materials.length ? `
         <p class="mh-note">武器は表示中の段階を作る素材です（派生元からの合計は「欲しいもの」タブで確認できます）。費用: <b>${result.zenny.toLocaleString()}z</b></p>
         <ul class="mh-materials">${materials.map(({ item, need, owned: have }) => `<li class="${have >= need ? "is-done" : ""}">${itemLabel(item || { n: "?" })}<span>×${need}（所持${have}）</span></li>`).join("")}</ul>` : `<div class="empty">素材が必要な装備はありません。</div>`}
+    </div>
+  `;
+}
+
+function simUpgradeSummary(build) {
+  const pieces = SIM_PARTS.map((part) => build.a[part] && idx.pieces.get(build.a[part])).filter(Boolean);
+  if (!pieces.length) return "";
+  const total = pieces.reduce((sum, piece) => {
+    const info = upgradeInfo(piece.set.r);
+    return { points: sum.points + info.points, zenny: sum.zenny + info.zenny, def: sum.def + info.def };
+  }, { points: 0, zenny: 0, def: 0 });
+  if (!total.points) return "";
+  return `
+    <div class="mh-upgrade">
+      <div><b>防具${pieces.length}部位を最大まで強化</b>（防御 +${total.def}）</div>
+      <div>強化ポイント <b>${total.points.toLocaleString()}pt</b> ／ 費用 <b>${total.zenny.toLocaleString()}z</b></div>
+      <div class="mh-muted">鎧玉の例: ${sphereText(total.points)}</div>
     </div>
   `;
 }

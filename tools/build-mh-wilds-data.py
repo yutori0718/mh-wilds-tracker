@@ -255,7 +255,14 @@ def main():
     if missing:
         print("warning: unknown item ids", sorted(missing))
 
+    # 防具強化（レア度ごと）: [強化後のLv, 防御力+, 必要ポイント, 費用]
+    upgrades = {
+        str(u["rarity"]): [[st["level"], st["extra_defense"], st["point_cost"], st["zenny_cost"]] for st in u["steps"]]
+        for u in load("ArmorUpgrade.json")
+    }
+
     data = {
+        "armorUpgrades": upgrades,
         "materialCategories": [{"id": key, "n": name} for key, name, _ in MATERIAL_CATEGORIES],
         "source": "MHDB (https://github.com/LartTyler/mhdb-wilds-data)",
         "weaponTypes": [{"id": kind, "n": name} for _, kind, name in WEAPON_FILES],
