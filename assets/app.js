@@ -4,9 +4,10 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240535";
+const VERSION = "202609240538";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
+const LIMIT_BREAK_URL = `./data/armor-limit-break.json?v=${VERSION}`;
 const STORAGE_KEY = "mh-wilds-tracker-v1";
 const PAGE_SIZE = 60;
 
@@ -91,6 +92,7 @@ const app = document.querySelector("#app");
 
 let data = null;
 let artian = null;
+let limitBreak = null;
 const idx = {
   items: new Map(),
   monsters: new Map(),
@@ -123,7 +125,8 @@ async function init() {
     const response = await fetch(DATA_URL);
     if (!response.ok) throw new Error(`${DATA_URL}: ${response.status}`);
     data = await response.json();
-    artian = await fetch(ARTIAN_URL).then((res) => (res.ok ? res.json() : null)).catch(() => null);
+    [artian, limitBreak] = await Promise.all([ARTIAN_URL, LIMIT_BREAK_URL].map((url) =>
+      fetch(url).then((res) => (res.ok ? res.json() : null)).catch(() => null)));
   } catch (error) {
     console.error(error);
     app.innerHTML = shell(`<div class="empty">データを読み込めませんでした。</div>`);
@@ -524,6 +527,14 @@ async function onClick(event) {
   if (action === "import-dismiss") {
     pendingImport = null;
     renderAll();
+    return;
+  }
+  if (action === "armor-detail") {
+    openArmorDetail(button.dataset.id);
+    return;
+  }
+  if (action === "detail-close") {
+    button.closest("dialog")?.close();
     return;
   }
   if (action.startsWith("sim-")) {
@@ -1232,7 +1243,7 @@ function armorCard(set) {
           ${pieces.map((piece) => `
             <div class="mh-piece">
               <div class="mh-card-head">
-                <div><span class="pill">${PIECE_LABELS[piece.p]}</span> <b>${escapeHtml(piece.n)}</b></div>
+                <button type="button" class="mh-piece-name" data-action="armor-detail" data-id="${piece.id}" title="詳細（強化・限界突破）を見る"><span class="pill">${PIECE_LABELS[piece.p]}</span> <b>${escapeHtml(piece.n)}</b> <span class="mh-detail-link">詳細 ›</span></button>
                 ${wantButton(`a:${piece.id}`)}
               </div>
               <div class="mh-note">防御 ${piece.def ?? "-"} ／ スロット ${slotText(piece.sl)}</div>
@@ -1244,6 +1255,104 @@ function armorCard(set) {
       </div>
     </article>
   `;
+}
+
+// 防具の詳細（性能・スキル・生産・強化の段階・限界突破）
+function openArmorDetail(pieceId) {
+  const piece = idx.pieces.get(pieceId);
+  if (!piece) return;
+  let dialog = document.querySelector("[data-role='armor-detail']");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.className = "mh-dialog mh-detail";
+    dialog.dataset.role = "armor-detail";
+    app.appendChild(dialog);
+  }
+  dialog.innerHTML = armorDetailHtml(piece);
+  dialog.showModal();
+  dialog.scrollTop = 0;
+}
+
+function armorDetailHtml(piece) {
+  const set = piece.set;
+  const rank = armorRankOf(set);
+  const steps = data.armorUpgrades?.[String(set.r)] || [];
+  const info = upgradeInfo(set.r);
+  let def = piece.def;
+  let points = 0;
+  let zenny = 0;
+  const upgradeRows = steps.map(([level, extra, pt, z]) => {
+    def += extra;
+    points += pt;
+    zenny += z;
+    return `<tr><td class="num">Lv${level}</td><td class="num">${def}</td><td class="num">${pt.toLocaleString()}</td><td class="num">${z.toLocaleString()}</td><td class="num">${points.toLocaleString()}</td><td class="num">${zenny.toLocaleString()}</td></tr>`;
+  }).join("");
+  const bonuses = [set.sb, set.gb].filter(Boolean).map(([id, ranks]) => {
+    const skill = data.skills[id];
+    return `<li><b>${escapeHtml(skill?.n || "?")}</b>（${skill?.k === "group" ? "グループ" : "シリーズ"}）${ranks.map(([pieces, level]) => {
+      const rk = skill?.rk?.find(([lv]) => lv === level);
+      return `<div class="mh-sim-desc"><span class="mh-piece-count">${pieces}部位</span>${escapeHtml(rk?.[1] || "")} ${escapeHtml(rk?.[2] || "")}</div>`;
+    }).join("")}</li>`;
+  }).join("");
+  return `
+    <div class="mh-dialog-head">
+      <div><div class="meta-row">${rankBadges([rank])}${rarityPill(set.r)}<span class="pill">${PIECE_LABELS[piece.p]}</span><span class="pill">${escapeHtml(set.n)}</span></div><h2 class="mh-detail-title">${escapeHtml(piece.n)}</h2></div>
+      <button type="button" class="mh-btn small" data-action="detail-close">閉じる</button>
+    </div>
+    <div class="mh-detail-body">
+      <dl class="mh-sim-stats">
+        <div><dt>防御力</dt><dd>${piece.def}<small>最大強化 ${piece.def + info.def}</small></dd></div>
+        <div><dt>スロット</dt><dd>${slotText(piece.sl)}</dd></div>
+        ${RESIST_LABELS.map((label, i) => `<div><dt>${label}耐性</dt><dd class="${(piece.res?.[i] || 0) < 0 ? "mh-minus" : ""}">${piece.res?.[i] ?? 0}</dd></div>`).join("")}
+      </dl>
+
+      <h3 class="mh-subhead">スキル</h3>
+      <ul class="mh-detail-list">
+        ${Object.entries(piece.sk).filter(([id]) => !["set", "group"].includes(data.skills[id]?.k)).map(([id, lv]) => {
+          const skill = data.skills[id];
+          const rk = skill?.rk?.find(([level]) => level === lv);
+          return `<li><b>${escapeHtml(skill?.n || "?")} Lv${lv}</b><div class="mh-sim-desc">${escapeHtml(rk?.[2] || "")}</div></li>`;
+        }).join("") || `<li class="mh-muted">なし</li>`}
+        ${bonuses}
+      </ul>
+
+      <h3 class="mh-subhead">生産素材</h3>
+      ${materialList(piece.in, piece.z)}
+
+      <h3 class="mh-subhead">強化（Lv1 → Lv${info.maxLv}）</h3>
+      ${steps.length ? `
+        <div class="table-wrap">
+          <table class="mh-table mh-upgrade-table">
+            <thead><tr><th>強化後</th><th>防御力</th><th>ポイント</th><th>費用</th><th>累計pt</th><th>累計費用</th></tr></thead>
+            <tbody>${upgradeRows}</tbody>
+          </table>
+        </div>
+        <p class="mh-note">最大まで: <b>${info.points.toLocaleString()}pt</b> ／ <b>${info.zenny.toLocaleString()}z</b>　鎧玉の例: ${sphereText(info.points)}</p>` : `<div class="empty">強化データがありません。</div>`}
+
+      <h3 class="mh-subhead">限界突破</h3>
+      ${limitBreakHtml(piece)}
+    </div>
+  `;
+}
+
+// data/armor-limit-break.json の byRarity[レア度] = [{ step, def, zenny, materials: { 素材名: 個数 }, note }]
+function limitBreakHtml(piece) {
+  const stages = limitBreak?.byRarity?.[String(piece.set.r)] || [];
+  if (!stages.length) {
+    return `<div class="empty">限界突破のデータはまだ登録されていません。<br />必要な素材・金額・上がる防御力が分かり次第、ここに表示されます。</div>`;
+  }
+  const owned = profile().owned;
+  const byName = new Map(data.items.map((item) => [item.n, item]));
+  return `<div class="mh-detail-list">${stages.map((stage, i) => `
+    <div class="mh-upgrade">
+      <div><b>${escapeHtml(stage.step || `限界突破${i + 1}`)}</b>${stage.def ? `（防御 +${stage.def}）` : ""}${stage.zenny ? ` ／ 費用 <b>${Number(stage.zenny).toLocaleString()}z</b>` : ""}</div>
+      <ul class="mh-materials">${Object.entries(stage.materials || {}).map(([name, count]) => {
+        const item = byName.get(name);
+        const have = item ? owned[item.id] || 0 : 0;
+        return `<li class="${have >= count ? "is-done" : ""}">${item ? itemLabel(item) : escapeHtml(name)}<span>×${count}</span></li>`;
+      }).join("")}</ul>
+      ${stage.note ? `<div class="mh-muted">${escapeHtml(stage.note)}</div>` : ""}
+    </div>`).join("")}</div>`;
 }
 
 // ---------------------------------------------------------------------------

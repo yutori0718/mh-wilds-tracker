@@ -1267,3 +1267,56 @@
 .mh-sphere-guide ul {
   max-height: none;
 }
+
+/* 防具の詳細 */
+.mh-piece-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 0;
+  color: var(--white);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mh-piece-name:hover b {
+  text-decoration: underline;
+}
+
+.mh-detail-link {
+  color: var(--purple);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.mh-detail .mh-dialog-head {
+  align-items: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mh-detail-title {
+  margin-top: 6px;
+  font-size: 1.3rem;
+}
+
+.mh-detail-body {
+  max-height: calc(min(84vh, 900px) - 90px);
+  overflow-y: auto;
+  padding: 12px 14px 18px;
+}
+
+.mh-detail-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.mh-upgrade-table {
+  min-width: 460px;
+}
