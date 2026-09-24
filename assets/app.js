@@ -10,6 +10,7 @@ const PAGE_SIZE = 60;
 
 const TABS = [
   { id: "list", label: "欲しいもの" },
+  { id: "sim", label: "装備シミュ" },
   { id: "weapons", label: "武器" },
   { id: "armor", label: "防具" },
   { id: "charms", label: "護石" },
@@ -170,7 +171,7 @@ function weaponChain(weapon) {
 // 保存データ（人ごとのプロフィール）
 
 function newProfile(name) {
-  return { id: `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, wants: {}, owned: {}, decos: {} };
+  return { id: `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, wants: {}, owned: {}, decos: {}, sim: emptyBuild(), builds: [] };
 }
 
 function loadStore() {
@@ -188,6 +189,8 @@ function loadStore() {
     profile.wants ||= {};
     profile.owned ||= {};
     profile.decos ||= {};
+    profile.sim ||= emptyBuild();
+    profile.builds ||= [];
   });
   if (!saved.profiles.some((profile) => profile.id === saved.current)) saved.current = saved.profiles[0].id;
   return saved;
@@ -233,7 +236,7 @@ function computeNeeds(target) {
 // 共有（URL / コード）
 
 async function encodeProfile(target) {
-  const payload = JSON.stringify({ v: 1, name: target.name, wants: target.wants, owned: target.owned, decos: target.decos });
+  const payload = JSON.stringify({ v: 1, name: target.name, wants: target.wants, owned: target.owned, decos: target.decos, builds: target.builds });
   let bytes = new TextEncoder().encode(payload);
   let prefix = "j";
   if (typeof CompressionStream === "function") {
@@ -263,6 +266,7 @@ async function decodeProfile(code) {
     wants: sanitizeWants(parsed.wants),
     owned: sanitizeCounts(parsed.owned),
     decos: sanitizeDecos(parsed.decos),
+    builds: sanitizeBuilds(parsed.builds),
   };
 }
 
@@ -291,6 +295,13 @@ function sanitizeDecos(source) {
     result[key] = { want: Math.max(0, Math.min(99, Math.floor(Number(value?.want) || 0))), have: Math.max(0, Math.min(999, Math.floor(Number(value?.have) || 0))) };
   });
   return result;
+}
+
+function sanitizeBuilds(source) {
+  if (!Array.isArray(source)) return [];
+  return source.slice(0, 30)
+    .filter((entry) => entry && typeof entry.b === "object")
+    .map((entry) => ({ id: String(entry.id || Math.random().toString(36).slice(2)), name: String(entry.name || "セット").slice(0, 40), b: normalizeBuild(entry.b) }));
 }
 
 function toBase64Url(bytes) {
@@ -323,13 +334,13 @@ function applyImport(imported, mode) {
   if (mode === "replace") {
     const existing = store.profiles.find((entry) => entry.name === imported.name);
     if (existing) {
-      Object.assign(existing, { wants: imported.wants, owned: imported.owned, decos: imported.decos });
+      Object.assign(existing, { wants: imported.wants, owned: imported.owned, decos: imported.decos, builds: imported.builds });
       store.current = existing.id;
       saveStore();
       return;
     }
   }
-  const created = { ...newProfile(uniqueName(imported.name)), wants: imported.wants, owned: imported.owned, decos: imported.decos };
+  const created = { ...newProfile(uniqueName(imported.name)), wants: imported.wants, owned: imported.owned, decos: imported.decos, builds: imported.builds };
   store.profiles.push(created);
   store.current = created.id;
   saveStore();
@@ -477,6 +488,10 @@ async function onClick(event) {
     renderAll();
     return;
   }
+  if (action.startsWith("sim-")) {
+    onSimClick(action, button);
+    return;
+  }
   if (action === "owned-clear") {
     if (!confirm("所持数をすべて0に戻しますか？")) return;
     target.owned = {};
@@ -492,6 +507,10 @@ function onInput(event) {
     tabFilters[field.dataset.filter] = field.type === "checkbox" ? field.checked : field.value;
     tabFilters.limit = currentTab === "armor" ? 30 : PAGE_SIZE;
     renderResults();
+    return;
+  }
+  if ("simSearch" in field.dataset || field.dataset.simPickType !== undefined) {
+    renderSimPickList();
     return;
   }
   if ("monsterFilter" in field.dataset) {
@@ -524,6 +543,10 @@ function onChange(event) {
     if (want) want.chain = field.checked;
     saveStore();
     renderPanel();
+    return;
+  }
+  if (field.dataset.sim) {
+    onSimChange(field);
     return;
   }
   if (field.dataset.listFilter) {
@@ -664,6 +687,7 @@ function renderPanel() {
   if (!panel) return;
   const renderers = {
     list: renderListPanel,
+    sim: renderSimPanel,
     weapons: () => filterPanel(weaponControls()),
     armor: () => filterPanel(armorControls()),
     charms: () => filterPanel(charmControls()),
@@ -1481,6 +1505,615 @@ function armorWithSkills(skillNames) {
       <ul>${sets.map((set) => `<li>${rarityPill(set.r)} ${escapeHtml(set.n)}</li>`).join("")}</ul>
     </details>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// 装備シミュレーター
+//
+// 武器・防具5部位・護石と装飾品を組み合わせて、発動スキル・シリーズ/グループスキル・防御力・耐性・必要素材を計算する。
+// アーティア武器はスキルを手動で追加、巨戟アーティアはシリーズスキル/グループスキルを選択（武器を1部位分として数える）。
+// 護石は固定の護石か、スキルとスロットを自由に決める「鑑定護石（カスタム）」を選べる。
+
+const SIM_PARTS = ["head", "chest", "arms", "waist", "legs"];
+const RESIST_LABELS = ["火", "水", "雷", "氷", "龍"];
+const CUSTOM_CHARM = "custom";
+let simPick = null; // ピッカーで選択中の枠（"weapon" / 部位 / "charm"）
+const simPickFilters = { type: "", q: "" };
+
+function emptyBuild() {
+  return {
+    w: null, wMode: "", wSkills: [], wAtk: "", wAff: "", gogma: { series: "", group: "" }, wDecos: [],
+    a: {}, aDecos: {},
+    c: null, cSkills: [], cSlots: [], cDecos: [],
+  };
+}
+
+function normalizeBuild(source) {
+  const build = { ...emptyBuild(), ...(source || {}) };
+  build.wSkills = Array.isArray(build.wSkills) ? build.wSkills.slice(0, 6) : [];
+  build.wDecos = Array.isArray(build.wDecos) ? build.wDecos.slice(0, 3) : [];
+  build.gogma = { series: "", group: "", ...(build.gogma || {}) };
+  build.a = typeof build.a === "object" && build.a ? build.a : {};
+  build.aDecos = typeof build.aDecos === "object" && build.aDecos ? build.aDecos : {};
+  build.cSkills = Array.isArray(build.cSkills) ? build.cSkills.slice(0, 3) : [];
+  build.cSlots = Array.isArray(build.cSlots) ? build.cSlots.slice(0, 3) : [];
+  build.cDecos = Array.isArray(build.cDecos) ? build.cDecos.slice(0, 3) : [];
+  return build;
+}
+
+function simBuild() {
+  const target = profile();
+  target.sim = normalizeBuild(target.sim);
+  return target.sim;
+}
+
+// 武器の種別: 通常 / アーティア（スキル手動） / 巨戟アーティア（シリーズ・グループスキル選択）
+function weaponMode(build, weapon) {
+  if (!weapon?.art) return "fixed";
+  if (build.wMode === "artian" || build.wMode === "gogma") return build.wMode;
+  // 同名が3種類ある武器（忘却の〜 等）は巨戟アーティアとみなす（切り替え可能）
+  const sameName = data.weapons.filter((entry) => entry.t === weapon.t && entry.n === weapon.n).length;
+  return sameName >= 3 ? "gogma" : "artian";
+}
+
+function weaponSlots(build, weapon) {
+  return weapon?.sl || [];
+}
+
+function charmSlots(build) {
+  if (build.c === CUSTOM_CHARM) return build.cSlots.map(([type, lv]) => ({ on: type === "w" ? "weapon" : "armor", lv: Number(lv) || 1 }));
+  return [];
+}
+
+// シリーズ/グループスキルの発動条件（部位数 → レベル）
+function bonusThresholds() {
+  if (bonusThresholds.cache) return bonusThresholds.cache;
+  const map = new Map();
+  data.armor.forEach((set) => {
+    [set.sb, set.gb].forEach((bonus) => {
+      if (bonus && !map.has(bonus[0])) map.set(bonus[0], bonus[1]);
+    });
+  });
+  bonusThresholds.cache = map;
+  return map;
+}
+
+function artianSkillOptions() {
+  const byName = new Map(Object.entries(data.skills).map(([id, skill]) => [`${skill.k}:${skill.n}`, id]));
+  const series = [];
+  (artian?.series || []).forEach((entry) => {
+    (entry.members || [entry.name]).forEach((name) => {
+      const id = byName.get(`set:${name}`);
+      if (id) series.push({ id, name, tag: entry.tag });
+    });
+  });
+  const groups = (artian?.groups || [])
+    .map((entry) => ({ id: byName.get(`group:${entry.name}`), name: `${entry.name}（${entry.effect}）`, tag: entry.tag }))
+    .filter((entry) => entry.id);
+  return { series, groups };
+}
+
+function computeBuild(build) {
+  const weapon = build.w ? idx.weapons.get(build.w) : null;
+  const mode = weaponMode(build, weapon);
+  const skills = new Map(); // id -> { lv, sources: [] }
+  const bonusCounts = new Map(); // シリーズ/グループスキル id -> { count, sources: [] }
+  const addSkill = (id, lv, source) => {
+    const skill = data.skills[id];
+    if (!skill || !lv) return;
+    if (skill.k === "set" || skill.k === "group") return;
+    const entry = skills.get(id) || { lv: 0, sources: [] };
+    entry.lv += Number(lv);
+    entry.sources.push(`${source}${lv > 1 ? ` Lv${lv}` : ""}`);
+    skills.set(id, entry);
+  };
+  const addBonus = (id, source) => {
+    if (!id) return;
+    const entry = bonusCounts.get(id) || { count: 0, sources: [] };
+    entry.count += 1;
+    entry.sources.push(source);
+    bonusCounts.set(id, entry);
+  };
+  const addDecos = (decoIds, label) => decoIds.forEach((decoId) => {
+    const deco = decoId && idx.decos.get(decoId);
+    if (deco) Object.entries(deco.sk).forEach(([id, lv]) => addSkill(id, lv, deco.n));
+  });
+
+  // 武器
+  if (weapon) {
+    if (mode === "fixed") Object.entries(weapon.sk).forEach(([id, lv]) => addSkill(id, lv, weapon.n));
+    if (mode === "artian") build.wSkills.forEach(([id, lv]) => addSkill(id, lv, `${weapon.n}（追加）`));
+    if (mode === "gogma") {
+      addBonus(build.gogma.series, `${weapon.n}（巨戟）`);
+      addBonus(build.gogma.group, `${weapon.n}（巨戟）`);
+    }
+    addDecos(build.wDecos.slice(0, weaponSlots(build, weapon).length), weapon.n);
+  }
+
+  // 防具
+  let defense = 0;
+  let defenseMax = 0;
+  const resist = [0, 0, 0, 0, 0];
+  SIM_PARTS.forEach((part) => {
+    const piece = build.a[part] && idx.pieces.get(build.a[part]);
+    if (!piece) return;
+    defense += piece.def || 0;
+    defenseMax += piece.dmax || piece.def || 0;
+    (piece.res || []).forEach((value, i) => { resist[i] += value; });
+    Object.entries(piece.sk).forEach(([id, lv]) => addSkill(id, lv, piece.n));
+    if (piece.set.sb) addBonus(piece.set.sb[0], piece.n);
+    if (piece.set.gb) addBonus(piece.set.gb[0], piece.n);
+    addDecos((build.aDecos[part] || []).slice(0, piece.sl.length), piece.n);
+  });
+
+  // 護石
+  if (build.c === CUSTOM_CHARM) {
+    build.cSkills.forEach(([id, lv]) => addSkill(id, lv, "鑑定護石"));
+    addDecos(build.cDecos.slice(0, build.cSlots.length), "鑑定護石");
+  } else if (build.c) {
+    const charm = idx.charms.get(build.c);
+    if (charm) Object.entries(charm.sk).forEach(([id, lv]) => addSkill(id, lv, charm.n));
+  }
+
+  const skillRows = [...skills.entries()].map(([id, entry]) => {
+    const skill = data.skills[id];
+    return { id, skill, total: entry.lv, lv: Math.min(entry.lv, skill.max), over: Math.max(0, entry.lv - skill.max), sources: entry.sources };
+  }).sort((a, b) => b.lv - a.lv || a.skill.n.localeCompare(b.skill.n, "ja"));
+
+  const thresholds = bonusThresholds();
+  const bonusRows = [...bonusCounts.entries()].map(([id, entry]) => {
+    const skill = data.skills[id];
+    const ranks = thresholds.get(id) || (skill?.k === "group" ? [[3, 1]] : [[2, 1], [4, 2]]);
+    const active = ranks.filter(([pieces]) => entry.count >= pieces).map(([, level]) => level);
+    return { id, skill, count: entry.count, ranks, lv: active.length ? Math.max(...active) : 0, sources: entry.sources };
+  }).sort((a, b) => b.lv - a.lv || b.count - a.count);
+
+  // 必要素材（この組み合わせを作るのに必要な分。武器は表示中の段階のみ）
+  const needed = new Map();
+  let zenny = 0;
+  const addCost = (entity) => {
+    if (!entity) return;
+    zenny += entity.z || 0;
+    Object.entries(entity.in || {}).forEach(([itemId, amount]) => needed.set(itemId, (needed.get(itemId) || 0) + amount));
+  };
+  addCost(weapon);
+  SIM_PARTS.forEach((part) => addCost(build.a[part] && idx.pieces.get(build.a[part])));
+  if (build.c && build.c !== CUSTOM_CHARM) addCost(idx.charms.get(build.c));
+
+  return { weapon, mode, skillRows, bonusRows, defense, defenseMax, resist, needed, zenny };
+}
+
+// --- 描画 -------------------------------------------------------------------
+
+function renderSimPanel() {
+  const build = simBuild();
+  const result = computeBuild(build);
+  const target = profile();
+  return `
+    <div class="mh-sim">
+      <div class="mh-sim-equip">
+        <div class="panel">
+          <div class="mh-panel-head">
+            <h2>装備</h2>
+            <div class="mh-row">
+              <button type="button" class="mh-btn small" data-action="sim-save">保存</button>
+              <button type="button" class="mh-btn small danger" data-action="sim-reset">全部外す</button>
+            </div>
+          </div>
+          ${simWeaponRow(build, result)}
+          ${SIM_PARTS.map((part) => simArmorRow(build, part)).join("")}
+          ${simCharmRow(build)}
+        </div>
+        ${target.builds.length ? `
+          <div class="panel">
+            <h2>保存したセット</h2>
+            <ul class="mh-want-list">
+              ${target.builds.map((entry) => `
+                <li class="mh-want">
+                  <div class="mh-want-main"><b>${escapeHtml(entry.name)}</b><span class="mh-muted">${escapeHtml(buildSummary(entry.b))}</span></div>
+                  <div class="mh-row">
+                    <button type="button" class="mh-btn small primary" data-action="sim-load" data-id="${escapeHtml(entry.id)}">呼び出す</button>
+                    <button type="button" class="mh-btn small danger" data-action="sim-delete" data-id="${escapeHtml(entry.id)}">削除</button>
+                  </div>
+                </li>`).join("")}
+            </ul>
+            <p class="mh-note">保存したセットは共有URLにも含まれます。</p>
+          </div>` : ""}
+      </div>
+      <div class="mh-sim-result">${simResult(result)}</div>
+    </div>
+    <dialog class="mh-dialog" data-role="sim-dialog">
+      <div class="mh-dialog-head">
+        <b data-role="sim-dialog-title"></b>
+        <button type="button" class="mh-btn small" data-action="sim-close">閉じる</button>
+      </div>
+      <div class="mh-dialog-controls" data-role="sim-dialog-controls"></div>
+      <div class="mh-dialog-list" data-role="sim-dialog-list"></div>
+    </dialog>
+  `;
+}
+
+function buildSummary(build) {
+  const weapon = build.w && idx.weapons.get(build.w);
+  const count = SIM_PARTS.filter((part) => build.a?.[part]).length;
+  return `${weapon ? weapon.n : "武器なし"}・防具${count}部位`;
+}
+
+function simSlotHead(label, name, extra = "", slot) {
+  return `
+    <div class="mh-sim-head">
+      <span class="mh-sim-label">${label}</span>
+      <button type="button" class="mh-sim-pick" data-action="sim-pick" data-slot="${slot}">${name ? `<b>${escapeHtml(name)}</b>` : `<span class="mh-muted">選択してください</span>`}</button>
+      ${name ? `<button type="button" class="mh-btn small" data-action="sim-clear" data-slot="${slot}" aria-label="外す">×</button>` : ""}
+    </div>
+    ${extra}
+  `;
+}
+
+function simWeaponRow(build, result) {
+  const weapon = result.weapon;
+  let extra = "";
+  if (weapon) {
+    const element = weapon.el ? `${ELEMENT_LABELS[weapon.el[0]] || weapon.el[0]}${weapon.el[1]}` : "無属性";
+    extra += `<div class="mh-sim-meta">${idx.weaponTypes.get(weapon.t)} ${rarityPill(weapon.r)} 攻撃 <b>${weapon.atk}</b> 会心 <b>${weapon.aff}%</b> ${element}</div>`;
+    if (weapon.art) {
+      extra += `
+        <div class="mh-sim-sub">
+          <label class="mh-field"><span>種別</span>
+            <select data-sim="wmode">
+              <option value="artian" ${result.mode === "artian" ? "selected" : ""}>アーティア（スキルを追加）</option>
+              <option value="gogma" ${result.mode === "gogma" ? "selected" : ""}>巨戟アーティア（シリーズ/グループスキル）</option>
+            </select>
+          </label>
+          <label class="mh-field"><span>攻撃力（ボーナス込み）</span><input class="mh-num" type="number" data-sim="watk" value="${escapeHtml(build.wAtk)}" placeholder="${weapon.atk}" /></label>
+          <label class="mh-field"><span>会心率%</span><input class="mh-num" type="number" data-sim="waff" value="${escapeHtml(build.wAff)}" placeholder="${weapon.aff}" /></label>
+        </div>`;
+      if (result.mode === "gogma") {
+        const options = artianSkillOptions();
+        extra += `
+          <div class="mh-sim-sub">
+            <label class="mh-field grow"><span>シリーズスキル（1部位分）</span>
+              <select data-sim="gseries"><option value="">なし</option>${options.series.map((entry) => `<option value="${entry.id}" ${build.gogma.series === entry.id ? "selected" : ""}>${escapeHtml(entry.name)}${entry.tag ? `（${entry.tag}）` : ""}</option>`).join("")}</select>
+            </label>
+            <label class="mh-field grow"><span>グループスキル（1部位分）</span>
+              <select data-sim="ggroup"><option value="">なし</option>${options.groups.map((entry) => `<option value="${entry.id}" ${build.gogma.group === entry.id ? "selected" : ""}>${escapeHtml(entry.name)}</option>`).join("")}</select>
+            </label>
+          </div>`;
+      } else {
+        extra += `<div class="mh-sim-sub">${skillPickers(build.wSkills, "wskill", ["weapon"])}
+          ${build.wSkills.length < 6 ? `<button type="button" class="mh-btn small" data-action="sim-add-wskill">＋ スキルを追加</button>` : ""}</div>`;
+      }
+    } else {
+      const skills = Object.entries(weapon.sk);
+      if (skills.length) extra += `<div class="mh-sim-sub">${skillList(weapon.sk)}</div>`;
+    }
+    extra += decoSelectors(weaponSlots(build, weapon).map((lv) => ({ on: "weapon", lv })), build.wDecos, "wdeco");
+  }
+  return `<div class="mh-sim-row">${simSlotHead("武器", weapon?.n, extra, "weapon")}</div>`;
+}
+
+function simArmorRow(build, part) {
+  const piece = build.a[part] && idx.pieces.get(build.a[part]);
+  let extra = "";
+  if (piece) {
+    extra += `<div class="mh-sim-meta">${rarityPill(piece.set.r)} 防御 <b>${piece.def}</b>（最大${piece.dmax ?? "-"}） ${skillList(piece.sk)}</div>`;
+    extra += decoSelectors(piece.sl.map((lv) => ({ on: "armor", lv })), build.aDecos[part] || [], `adeco:${part}`);
+  }
+  return `<div class="mh-sim-row">${simSlotHead(PIECE_LABELS[part], piece?.n, extra, part)}</div>`;
+}
+
+function simCharmRow(build) {
+  let name = null;
+  let extra = "";
+  if (build.c === CUSTOM_CHARM) {
+    name = "鑑定護石（カスタム）";
+    extra += `<div class="mh-sim-sub">${skillPickers(build.cSkills, "cskill", ["armor", "weapon"])}
+      ${build.cSkills.length < 3 ? `<button type="button" class="mh-btn small" data-action="sim-add-cskill">＋ スキルを追加</button>` : ""}</div>`;
+    extra += `<div class="mh-sim-sub">
+      ${build.cSlots.map(([type, lv], i) => `
+        <span class="mh-slot-edit">
+          <select data-sim="cslot-type" data-index="${i}"><option value="a" ${type === "a" ? "selected" : ""}>防具スロット</option><option value="w" ${type === "w" ? "selected" : ""}>武器スロット</option></select>
+          <select data-sim="cslot-lv" data-index="${i}">${[1, 2, 3].map((value) => `<option value="${value}" ${Number(lv) === value ? "selected" : ""}>Lv${value}</option>`).join("")}</select>
+          <button type="button" class="mh-btn small" data-action="sim-remove-cslot" data-index="${i}" aria-label="スロットを削除">×</button>
+        </span>`).join("")}
+      ${build.cSlots.length < 3 ? `<button type="button" class="mh-btn small" data-action="sim-add-cslot">＋ スロットを追加</button>` : ""}
+    </div>`;
+    extra += decoSelectors(charmSlots(build), build.cDecos, "cdeco");
+  } else if (build.c) {
+    const charm = idx.charms.get(build.c);
+    name = charm?.n;
+    if (charm) extra += `<div class="mh-sim-meta">${rarityPill(charm.r)} ${skillList(charm.sk)}</div>`;
+  }
+  return `<div class="mh-sim-row">${simSlotHead("護石", name, extra, "charm")}</div>`;
+}
+
+function skillPickers(list, key, kinds) {
+  return list.map(([id, lv], i) => {
+    const skill = data.skills[id];
+    return `
+      <span class="mh-skill-edit">
+        <select data-sim="${key}" data-index="${i}">
+          <option value="">スキルを選択</option>
+          ${skillOptions(kinds, id)}
+        </select>
+        <select data-sim="${key}-lv" data-index="${i}">
+          ${Array.from({ length: skill?.max || 1 }, (_, n) => n + 1).map((value) => `<option value="${value}" ${Number(lv) === value ? "selected" : ""}>Lv${value}</option>`).join("")}
+        </select>
+        <button type="button" class="mh-btn small" data-action="sim-remove-${key}" data-index="${i}" aria-label="スキルを削除">×</button>
+      </span>`;
+  }).join("");
+}
+
+function skillOptions(kinds, selected) {
+  const labels = { weapon: "武器スキル", armor: "防具スキル" };
+  return kinds.map((kind) => {
+    const entries = Object.entries(data.skills).filter(([, skill]) => skill.k === kind)
+      .sort((a, b) => a[1].n.localeCompare(b[1].n, "ja"));
+    return `<optgroup label="${labels[kind]}">${entries.map(([id, skill]) => `<option value="${id}" ${id === selected ? "selected" : ""}>${escapeHtml(skill.n)}</option>`).join("")}</optgroup>`;
+  }).join("");
+}
+
+// スロットごとの装飾品選択（スロットLv以下・武器用/防具用のみ）
+function decoSelectors(slots, selected, key) {
+  if (!slots.length) return `<div class="mh-sim-sub mh-muted">スロットなし</div>`;
+  return `<div class="mh-sim-decos">${slots.map((slot, i) => `
+    <label class="mh-deco-select">
+      <span class="mh-slot-mark">${SLOT_MARKS[slot.lv] || slot.lv}</span>
+      <select data-sim="${key}" data-index="${i}">
+        <option value="">（空き）</option>
+        ${decoOptions(slot.on, slot.lv, selected[i])}
+      </select>
+    </label>`).join("")}</div>`;
+}
+
+function decoOptions(on, maxLevel, selected) {
+  const list = data.decorations.filter((deco) => deco.on === on && deco.lv <= maxLevel)
+    .sort((a, b) => b.lv - a.lv || a.n.localeCompare(b.n, "ja"));
+  const groups = [];
+  list.forEach((deco) => {
+    if (!groups.length || groups[groups.length - 1].lv !== deco.lv) groups.push({ lv: deco.lv, list: [] });
+    groups[groups.length - 1].list.push(deco);
+  });
+  return groups.map((group) => `<optgroup label="Lv${group.lv}">${group.list.map((deco) => `<option value="${deco.id}" ${deco.id === selected ? "selected" : ""}>${escapeHtml(deco.n)}（${escapeHtml(skillText(deco.sk, true))}）</option>`).join("")}</optgroup>`).join("");
+}
+
+function simResult(result) {
+  const build = simBuild();
+  const weapon = result.weapon;
+  const atk = build.wAtk !== "" && weapon?.art ? Number(build.wAtk) : weapon?.atk;
+  const aff = build.wAff !== "" && weapon?.art ? Number(build.wAff) : weapon?.aff;
+  const owned = profile().owned;
+  const materials = [...result.needed.entries()].map(([itemId, need]) => ({ itemId, item: idx.items.get(itemId), need, owned: owned[itemId] || 0 }));
+  return `
+    <div class="panel">
+      <h2>ステータス</h2>
+      <dl class="mh-sim-stats">
+        <div><dt>攻撃力</dt><dd>${atk ?? "-"}</dd></div>
+        <div><dt>会心率</dt><dd>${aff ?? 0}%</dd></div>
+        <div><dt>属性</dt><dd>${weapon?.el ? `${ELEMENT_LABELS[weapon.el[0]] || weapon.el[0]} ${weapon.el[1]}` : "-"}</dd></div>
+        <div><dt>防御力</dt><dd>${result.defense}<small>（強化最大 ${result.defenseMax}）</small></dd></div>
+        ${RESIST_LABELS.map((label, i) => `<div><dt>${label}耐性</dt><dd class="${result.resist[i] < 0 ? "mh-minus" : ""}">${result.resist[i]}</dd></div>`).join("")}
+      </dl>
+      <p class="mh-note">攻撃力・会心率は武器の値です（スキルの効果は含みません）。防御力は防具の初期値の合計です。</p>
+    </div>
+    <div class="panel">
+      <h2>発動スキル <small>${result.skillRows.length}件</small></h2>
+      ${result.skillRows.length ? `<div class="mh-sim-skills">${result.skillRows.map(simSkillRow).join("")}</div>` : `<div class="empty">装備を選ぶと、ここに発動スキルが表示されます。</div>`}
+    </div>
+    <div class="panel">
+      <h2>シリーズスキル・グループスキル</h2>
+      ${result.bonusRows.length ? `<div class="mh-sim-skills">${result.bonusRows.map(simBonusRow).join("")}</div>` : `<div class="empty">該当なし</div>`}
+      <p class="mh-note">シリーズスキルは2部位／4部位、グループスキルは3部位で発動します。巨戟アーティアで選んだスキルは1部位分として数えています。</p>
+    </div>
+    <div class="panel">
+      <div class="mh-panel-head">
+        <h2>この装備に必要な素材</h2>
+        ${materials.length ? `<button type="button" class="mh-btn small primary" data-action="sim-want-all">欲しいものに全部追加</button>` : ""}
+      </div>
+      ${materials.length ? `
+        <p class="mh-note">武器は表示中の段階を作る素材です（派生元からの合計は「欲しいもの」タブで確認できます）。費用: <b>${result.zenny.toLocaleString()}z</b></p>
+        <ul class="mh-materials">${materials.map(({ item, need, owned: have }) => `<li class="${have >= need ? "is-done" : ""}">${itemLabel(item || { n: "?" })}<span>×${need}（所持${have}）</span></li>`).join("")}</ul>` : `<div class="empty">素材が必要な装備はありません。</div>`}
+    </div>
+  `;
+}
+
+function simSkillRow(row) {
+  const rank = row.skill.rk?.find(([level]) => level === row.lv);
+  return `
+    <div class="mh-sim-skill">
+      <div class="mh-sim-skill-head">
+        <b>${escapeHtml(row.skill.n)}</b>
+        <span class="mh-level">Lv${row.lv}<small>/${row.skill.max}</small></span>
+        <span class="mh-level-bar">${Array.from({ length: row.skill.max }, (_, i) => `<i class="${i < row.lv ? "on" : ""}"></i>`).join("")}</span>
+        ${row.over ? `<span class="mh-over">+${row.over} 超過</span>` : ""}
+      </div>
+      ${rank ? `<div class="mh-sim-desc">${escapeHtml(rank[2])}</div>` : ""}
+      <div class="mh-sim-src">${row.sources.map(escapeHtml).join("、")}</div>
+    </div>
+  `;
+}
+
+function simBonusRow(row) {
+  return `
+    <div class="mh-sim-skill ${row.lv ? "" : "is-off"}">
+      <div class="mh-sim-skill-head">
+        <b>${escapeHtml(row.skill?.n || "?")}</b>
+        <span class="pill ${row.skill?.k === "group" ? "purple" : ""}">${row.skill?.k === "group" ? "グループ" : "シリーズ"}</span>
+        <span class="mh-level">${row.count}部位</span>
+        ${row.lv ? `<span class="mh-done">発動中</span>` : `<span class="mh-muted">未発動</span>`}
+      </div>
+      <ul class="mh-sim-tiers">
+        ${row.ranks.map(([pieces, level]) => {
+          const rank = row.skill?.rk?.find(([lv]) => lv === level);
+          const on = row.count >= pieces;
+          return `<li class="${on ? "on" : ""}"><span class="mh-piece-count">${pieces}部位</span>${escapeHtml(rank?.[1] || "")} ${on ? "✓" : `（あと${pieces - row.count}部位）`}<div class="mh-sim-desc">${escapeHtml(rank?.[2] || "")}</div></li>`;
+        }).join("")}
+      </ul>
+      <div class="mh-sim-src">${row.sources.map(escapeHtml).join("、")}</div>
+    </div>
+  `;
+}
+
+// --- ピッカー（装備を選ぶダイアログ） --------------------------------------
+
+function openSimPicker(slot) {
+  simPick = slot;
+  const dialog = app.querySelector("[data-role='sim-dialog']");
+  const build = simBuild();
+  const current = build.w && idx.weapons.get(build.w);
+  if (slot === "weapon") simPickFilters.type = simPickFilters.type || current?.t || "great-sword";
+  const titles = { weapon: "武器を選ぶ", charm: "護石を選ぶ" };
+  dialog.querySelector("[data-role='sim-dialog-title']").textContent = titles[slot] || `${PIECE_LABELS[slot]}防具を選ぶ`;
+  dialog.querySelector("[data-role='sim-dialog-controls']").innerHTML = `
+    ${slot === "weapon" ? `<select data-sim-pick-type>${data.weaponTypes.map((type) => `<option value="${type.id}" ${simPickFilters.type === type.id ? "selected" : ""}>${type.n}</option>`).join("")}</select>` : ""}
+    <input class="mh-input" type="search" data-sim-search placeholder="名前・スキル・モンスター名で検索" value="${escapeHtml(simPickFilters.q)}" />
+  `;
+  renderSimPickList();
+  dialog.showModal();
+  dialog.querySelector("[data-sim-search]").focus();
+}
+
+function renderSimPickList() {
+  const dialog = app.querySelector("[data-role='sim-dialog']");
+  if (!dialog || !simPick) return;
+  const typeSelect = dialog.querySelector("[data-sim-pick-type]");
+  if (typeSelect) simPickFilters.type = typeSelect.value;
+  simPickFilters.q = dialog.querySelector("[data-sim-search]")?.value || "";
+  const q = simPickFilters.q;
+  let rows = [];
+  if (simPick === "weapon") {
+    rows = data.weapons.filter((weapon) => weapon.t === simPickFilters.type
+      && matches(q, [weapon.n, weapon.sr, idx.monsters.get(weapon.mon)?.n, skillText(weapon.sk)]))
+      .map((weapon) => ({
+        id: weapon.id,
+        html: `${rarityPill(weapon.r)} <b>${escapeHtml(weapon.n)}</b>${weapon.art ? ` <span class="pill purple">カスタム</span>` : ""}
+          <span class="mh-muted">攻撃${weapon.atk} 会心${weapon.aff}% ${weapon.el ? `${ELEMENT_LABELS[weapon.el[0]]}${weapon.el[1]}` : ""} ${slotText(weapon.sl)} ${escapeHtml(skillText(weapon.sk, true))}</span>`,
+      }));
+  } else if (simPick === "charm") {
+    rows = [{ id: CUSTOM_CHARM, html: `<b>鑑定護石（カスタム）</b> <span class="mh-muted">スキルとスロットを自由に設定</span>` }]
+      .concat(data.charms.filter((charm) => !charm.rand && matches(q, [charm.n, skillText(charm.sk)]))
+        .map((charm) => ({ id: charm.id, html: `${rarityPill(charm.r)} <b>${escapeHtml(charm.n)}</b> <span class="mh-muted">${escapeHtml(skillText(charm.sk, true))}</span>` })));
+  } else {
+    rows = data.armor.flatMap((set) => set.pc.filter((piece) => piece.p === simPick).map((piece) => ({ set, piece })))
+      .filter(({ set, piece }) => matches(q, [piece.n, set.n, skillText(piece.sk)]))
+      .map(({ set, piece }) => ({
+        id: piece.id,
+        html: `${rarityPill(set.r)} <b>${escapeHtml(piece.n)}</b> <span class="mh-muted">防御${piece.def} ${slotText(piece.sl)} ${escapeHtml(skillText(piece.sk, true))}</span>`,
+      }));
+  }
+  const list = dialog.querySelector("[data-role='sim-dialog-list']");
+  list.innerHTML = rows.length
+    ? rows.slice(0, 150).map((row) => `<button type="button" class="mh-pick-row" data-action="sim-set" data-id="${row.id}">${row.html}</button>`).join("")
+      + (rows.length > 150 ? `<p class="mh-note">ほか${rows.length - 150}件（検索で絞り込んでください）</p>` : "")
+    : `<div class="empty">該当なし</div>`;
+}
+
+// --- イベント -----------------------------------------------------------------
+
+function onSimClick(action, button) {
+  const build = simBuild();
+  const target = profile();
+  const index = Number(button.dataset.index);
+  const slot = button.dataset.slot;
+  if (action === "sim-pick") {
+    openSimPicker(slot);
+    return;
+  }
+  if (action === "sim-close") {
+    app.querySelector("[data-role='sim-dialog']")?.close();
+    return;
+  }
+  if (action === "sim-set") {
+    const id = button.dataset.id;
+    if (simPick === "weapon") {
+      build.w = id;
+      build.wMode = "";
+      build.wDecos = [];
+    } else if (simPick === "charm") {
+      build.c = id;
+      if (id === CUSTOM_CHARM && !build.cSlots.length) build.cSlots = [["a", 1]];
+    } else {
+      build.a[simPick] = id;
+      build.aDecos[simPick] = [];
+    }
+    app.querySelector("[data-role='sim-dialog']")?.close();
+    simPick = null;
+  } else if (action === "sim-clear") {
+    if (slot === "weapon") Object.assign(build, { w: null, wDecos: [], wSkills: [], wMode: "", gogma: { series: "", group: "" } });
+    else if (slot === "charm") Object.assign(build, { c: null, cSkills: [], cSlots: [], cDecos: [] });
+    else {
+      delete build.a[slot];
+      delete build.aDecos[slot];
+    }
+  } else if (action === "sim-reset") {
+    if (!confirm("装備をすべて外しますか？")) return;
+    target.sim = emptyBuild();
+  } else if (action === "sim-add-wskill") build.wSkills.push(["", 1]);
+  else if (action === "sim-remove-wskill") build.wSkills.splice(index, 1);
+  else if (action === "sim-add-cskill") build.cSkills.push(["", 1]);
+  else if (action === "sim-remove-cskill") build.cSkills.splice(index, 1);
+  else if (action === "sim-add-cslot") build.cSlots.push(["a", 1]);
+  else if (action === "sim-remove-cslot") {
+    build.cSlots.splice(index, 1);
+    build.cDecos.splice(index, 1);
+  } else if (action === "sim-save") {
+    const name = prompt("セット名を入力してください", buildSummary(build));
+    if (!name || !name.trim()) return;
+    target.builds.push({ id: Date.now().toString(36), name: name.trim().slice(0, 40), b: JSON.parse(JSON.stringify(build)) });
+  } else if (action === "sim-load") {
+    const entry = target.builds.find((candidate) => candidate.id === button.dataset.id);
+    if (entry) target.sim = normalizeBuild(JSON.parse(JSON.stringify(entry.b)));
+  } else if (action === "sim-delete") {
+    const entry = target.builds.find((candidate) => candidate.id === button.dataset.id);
+    if (!entry || !confirm(`「${entry.name}」を削除しますか？`)) return;
+    target.builds = target.builds.filter((candidate) => candidate !== entry);
+  } else if (action === "sim-want-all") {
+    const keys = [];
+    if (build.w) keys.push(`w:${build.w}`);
+    SIM_PARTS.forEach((part) => { if (build.a[part]) keys.push(`a:${build.a[part]}`); });
+    if (build.c && build.c !== CUSTOM_CHARM) keys.push(`c:${build.c}`);
+    keys.filter((key) => resolveWant(key) && Object.keys(resolveWant(key).entity.in || {}).length)
+      .forEach((key) => { if (!target.wants[key]) target.wants[key] = { n: 1 }; });
+    saveStore();
+    refreshTabCounts();
+    alert("欲しいものリストに追加しました。");
+    return;
+  }
+  saveStore();
+  renderPanel();
+}
+
+function onSimChange(field) {
+  const build = simBuild();
+  const key = field.dataset.sim;
+  const index = Number(field.dataset.index);
+  const value = field.value;
+  if (key === "wmode") build.wMode = value;
+  else if (key === "watk") build.wAtk = value;
+  else if (key === "waff") build.wAff = value;
+  else if (key === "gseries") build.gogma.series = value;
+  else if (key === "ggroup") build.gogma.group = value;
+  else if (key === "wdeco") build.wDecos[index] = value || null;
+  else if (key.startsWith("adeco:")) {
+    const part = key.slice(6);
+    build.aDecos[part] ||= [];
+    build.aDecos[part][index] = value || null;
+  } else if (key === "cdeco") build.cDecos[index] = value || null;
+  else if (key === "wskill" || key === "cskill") {
+    const list = key === "wskill" ? build.wSkills : build.cSkills;
+    list[index] = [value, 1];
+  } else if (key === "wskill-lv" || key === "cskill-lv") {
+    const list = key === "wskill-lv" ? build.wSkills : build.cSkills;
+    if (list[index]) list[index][1] = Number(value);
+  } else if (key === "cslot-type") {
+    build.cSlots[index][0] = value;
+    build.cDecos[index] = null;
+  } else if (key === "cslot-lv") {
+    build.cSlots[index][1] = Number(value);
+    build.cDecos[index] = null;
+  }
+  saveStore();
+  renderPanel();
 }
 
 // ---------------------------------------------------------------------------

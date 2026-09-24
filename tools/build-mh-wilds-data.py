@@ -80,7 +80,14 @@ def main():
     # スキル
     skill_list = load("Skill.json")
     skill_map = {
-        str(s["game_id"]): {"n": ja(s["names"]), "k": s["kind"], "max": max((r["level"] for r in s["ranks"]), default=1)}
+        str(s["game_id"]): {
+            "n": ja(s["names"]),
+            "k": s["kind"],
+            "max": max((r["level"] for r in s["ranks"]), default=1),
+            # レベルごとの [レベル, 名前（シリーズ/グループスキルのみ）, 効果]
+            "rk": [[r["level"], ja(r.get("names")) or None, ja(r.get("descriptions")).replace("\r\n", "")]
+                   for r in sorted(s["ranks"], key=lambda r: r["level"])],
+        }
         for s in skill_list
     }
 
@@ -108,6 +115,8 @@ def main():
             series_name = series_names.get(str(w.get("series_id")))
             if series_name:
                 entry["sr"] = series_name
+            if not c.get("inputs") and not series_name and w["game_id"] != 1:
+                entry["art"] = True  # アーティア等（スキル・装飾品をカスタムする武器）
             if c.get("previous_id") is not None:
                 entry["prev"] = f"{kind}:{c['previous_id']}"
             el = [s for s in (w.get("specials") or []) if s.get("kind") in ("element", "status")]
@@ -132,6 +141,8 @@ def main():
                 "p": p["kind"],
                 "n": ja(p["names"]),
                 "def": (p.get("defense") or {}).get("base"),
+                "dmax": (p.get("defense") or {}).get("max"),
+                "res": [(p.get("resistances") or {}).get(e, 0) for e in ("fire", "water", "thunder", "ice", "dragon")],
                 "sl": p.get("slots") or [],
                 "sk": skills(p.get("skills")),
                 "z": c.get("price") or 0,
@@ -140,7 +151,13 @@ def main():
             used_items.update(piece["in"])
             used_skills.update(piece["sk"])
             pieces.append(piece)
+        for key, bonus_key in (("set_bonus", "sb"), ("group_bonus", "gb")):
+            bonus = s.get(key)
+            if bonus:
+                used_skills.add(str(bonus["skill_id"]))
         armor.append({"id": str(s["game_id"]), "n": ja(s["names"]), "r": s["rarity"], "pc": pieces,
+                      **{bonus_key: [str(s[key]["skill_id"]), [[r["pieces"], r["skill_level"]] for r in s[key]["ranks"]]]
+                         for key, bonus_key in (("set_bonus", "sb"), ("group_bonus", "gb")) if s.get(key)},
                       "_sort": (s.get("model_id") or 0, s["rarity"], ja(s["names"]))})
     # 防具はゲーム内のシリーズ（モデル）番号順 → 下位/上位（レア度）順
     armor.sort(key=lambda s: s.pop("_sort"))
@@ -242,7 +259,7 @@ def main():
         "materialCategories": [{"id": key, "n": name} for key, name, _ in MATERIAL_CATEGORIES],
         "source": "MHDB (https://github.com/LartTyler/mhdb-wilds-data)",
         "weaponTypes": [{"id": kind, "n": name} for _, kind, name in WEAPON_FILES],
-        "skills": {k: v for k, v in skill_map.items() if k in used_skills},
+        "skills": skill_map,
         "items": items,
         "monsters": monsters,
         "weapons": weapons,

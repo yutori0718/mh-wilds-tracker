@@ -888,3 +888,310 @@
 .mh-el-dot.el-paralysis { background: #f2e65a; }
 .mh-el-dot.el-sleep { background: #6fa8dc; }
 .mh-el-dot.el-blastblight { background: #f59a2f; }
+
+/* 装備シミュレーター */
+.mh-sim {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.mh-sim-equip,
+.mh-sim-result {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.mh-sim .panel + .panel {
+  margin-top: 0;
+}
+
+.mh-sim-row {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.mh-sim-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mh-sim-label {
+  width: 44px;
+  flex: 0 0 auto;
+  color: var(--blue);
+  font-weight: 900;
+}
+
+.mh-sim-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--white);
+  background: rgba(4, 10, 8, 0.6);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mh-sim-pick:hover {
+  border-color: var(--blue);
+}
+
+.mh-sim-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding-left: 52px;
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.mh-sim-sub,
+.mh-sim-decos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  padding-left: 52px;
+}
+
+.mh-sim select,
+.mh-dialog select {
+  min-height: 36px;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 8px;
+  color: var(--white);
+  background: rgba(4, 10, 8, 0.8);
+}
+
+.mh-deco-select,
+.mh-skill-edit,
+.mh-slot-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mh-deco-select select {
+  width: min(260px, 60vw);
+}
+
+.mh-skill-edit select:first-child {
+  width: min(200px, 48vw);
+}
+
+.mh-slot-mark {
+  color: var(--blue);
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.mh-sim-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.mh-sim-stats div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(4, 10, 8, 0.4);
+}
+
+.mh-sim-stats dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.mh-sim-stats dd {
+  margin: 2px 0 0;
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.mh-sim-stats dd small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.mh-minus {
+  color: #ff8a8a;
+}
+
+.mh-sim-skills {
+  display: grid;
+  gap: 8px;
+}
+
+.mh-sim-skill {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(4, 10, 8, 0.4);
+}
+
+.mh-sim-skill.is-off {
+  opacity: 0.7;
+}
+
+.mh-sim-skill-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.mh-level {
+  color: var(--blue);
+  font-weight: 900;
+}
+
+.mh-level small {
+  color: var(--muted);
+}
+
+.mh-level-bar {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.mh-level-bar i {
+  width: 12px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mh-level-bar i.on {
+  background: var(--blue);
+}
+
+.mh-over {
+  color: #ff8a8a;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mh-sim-desc {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.mh-sim-src {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.mh-sim-tiers {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.86rem;
+}
+
+.mh-sim-tiers li {
+  opacity: 0.6;
+}
+
+.mh-sim-tiers li.on {
+  opacity: 1;
+}
+
+.mh-sim-tiers .mh-piece-count {
+  margin-right: 6px;
+}
+
+.mh-dialog {
+  width: min(760px, calc(100% - 24px));
+  max-height: min(84vh, 900px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0;
+  color: var(--white);
+  background: #0d1c16;
+}
+
+.mh-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.mh-dialog-head,
+.mh-dialog-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.mh-dialog-controls {
+  justify-content: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mh-dialog-list {
+  display: grid;
+  gap: 6px;
+  max-height: calc(min(84vh, 900px) - 130px);
+  overflow-y: auto;
+  padding: 10px 14px 14px;
+}
+
+.mh-pick-row {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--white);
+  background: rgba(18, 34, 28, 0.9);
+  text-align: left;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.mh-pick-row:hover {
+  border-color: var(--blue);
+}
+
+.mh-pick-row .mh-muted {
+  display: block;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 880px) {
+  .mh-sim {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .mh-sim-meta,
+  .mh-sim-sub,
+  .mh-sim-decos {
+    padding-left: 0;
+  }
+}
