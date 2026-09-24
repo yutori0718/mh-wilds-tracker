@@ -1522,7 +1522,8 @@ const simPickFilters = { type: "", q: "" };
 
 function emptyBuild() {
   return {
-    w: null, wMode: "", wSkills: [], wAtk: "", wAff: "", gogma: { series: "", group: "" }, wDecos: [],
+    w: null, wMode: "", wSkills: [], wAtk: "", wAff: "", wEl: "", wElv: "", wSlots: [], gogma: { series: "", group: "" }, wDecos: [],
+    defIn: "",
     a: {}, aDecos: {},
     c: null, cSkills: [], cSlots: [], cDecos: [],
   };
@@ -1532,6 +1533,8 @@ function normalizeBuild(source) {
   const build = { ...emptyBuild(), ...(source || {}) };
   build.wSkills = Array.isArray(build.wSkills) ? build.wSkills.slice(0, 6) : [];
   build.wDecos = Array.isArray(build.wDecos) ? build.wDecos.slice(0, 3) : [];
+  // 手入力したスロットは常に3枠分（0 = なし）で持つ
+  build.wSlots = Array.isArray(build.wSlots) && build.wSlots.length === 3 ? build.wSlots.map((lv) => Math.max(0, Math.min(3, Number(lv) || 0))) : [];
   build.gogma = { series: "", group: "", ...(build.gogma || {}) };
   build.a = typeof build.a === "object" && build.a ? build.a : {};
   build.aDecos = typeof build.aDecos === "object" && build.aDecos ? build.aDecos : {};
@@ -1557,7 +1560,31 @@ function weaponMode(build, weapon) {
 }
 
 function weaponSlots(build, weapon) {
+  if (weapon?.art && build.wSlots.length === 3) return build.wSlots.filter((lv) => lv > 0);
   return weapon?.sl || [];
+}
+
+// 武器の表示値（アーティアは画面に合わせて手入力した値を優先）
+function weaponStats(build, weapon) {
+  if (!weapon) return null;
+  const custom = weapon.art;
+  const pick = (input, fallback) => (custom && input !== "" && input !== undefined ? Number(input) : fallback);
+  let element = weapon.el ? { type: weapon.el[0], value: weapon.el[1], hidden: weapon.el[2] } : null;
+  if (custom && build.wEl) {
+    element = build.wEl === "none" ? null : { type: build.wEl, value: pick(build.wElv, weapon.el?.[0] === build.wEl ? weapon.el[1] : 0), hidden: false };
+  }
+  return { atk: pick(build.wAtk, weapon.atk), aff: pick(build.wAff, weapon.aff), element, slots: weaponSlots(build, weapon) };
+}
+
+function slotAt(build, weapon, index) {
+  if (build.wSlots.length === 3) return build.wSlots[index];
+  return weapon.sl[index] || 0;
+}
+
+function elementText(element) {
+  if (!element) return "無属性";
+  const text = `${ELEMENT_LABELS[element.type] || element.type} ${element.value ?? ""}`;
+  return element.hidden ? `(${text})` : text;
 }
 
 function charmSlots(build) {
@@ -1614,9 +1641,9 @@ function computeBuild(build) {
     entry.sources.push(source);
     bonusCounts.set(id, entry);
   };
-  const addDecos = (decoIds, label) => decoIds.forEach((decoId) => {
+  const addDecos = (decoIds, slotLevels) => decoIds.forEach((decoId, i) => {
     const deco = decoId && idx.decos.get(decoId);
-    if (deco) Object.entries(deco.sk).forEach(([id, lv]) => addSkill(id, lv, deco.n));
+    if (deco && i < slotLevels.length && deco.lv <= slotLevels[i]) Object.entries(deco.sk).forEach(([id, lv]) => addSkill(id, lv, deco.n));
   });
 
   // 武器
@@ -1627,7 +1654,7 @@ function computeBuild(build) {
       addBonus(build.gogma.series, `${weapon.n}（巨戟）`);
       addBonus(build.gogma.group, `${weapon.n}（巨戟）`);
     }
-    addDecos(build.wDecos.slice(0, weaponSlots(build, weapon).length), weapon.n);
+    addDecos(build.wDecos, weaponSlots(build, weapon));
   }
 
   // 防具
@@ -1643,13 +1670,13 @@ function computeBuild(build) {
     Object.entries(piece.sk).forEach(([id, lv]) => addSkill(id, lv, piece.n));
     if (piece.set.sb) addBonus(piece.set.sb[0], piece.n);
     if (piece.set.gb) addBonus(piece.set.gb[0], piece.n);
-    addDecos((build.aDecos[part] || []).slice(0, piece.sl.length), piece.n);
+    addDecos(build.aDecos[part] || [], piece.sl);
   });
 
   // 護石
   if (build.c === CUSTOM_CHARM) {
     build.cSkills.forEach(([id, lv]) => addSkill(id, lv, "鑑定護石"));
-    addDecos(build.cDecos.slice(0, build.cSlots.length), "鑑定護石");
+    addDecos(build.cDecos, charmSlots(build).map((slot) => slot.lv));
   } else if (build.c) {
     const charm = idx.charms.get(build.c);
     if (charm) Object.entries(charm.sk).forEach(([id, lv]) => addSkill(id, lv, charm.n));
@@ -1754,9 +1781,10 @@ function simWeaponRow(build, result) {
   const weapon = result.weapon;
   let extra = "";
   if (weapon) {
-    const element = weapon.el ? `${ELEMENT_LABELS[weapon.el[0]] || weapon.el[0]}${weapon.el[1]}` : "無属性";
-    extra += `<div class="mh-sim-meta">${idx.weaponTypes.get(weapon.t)} ${rarityPill(weapon.r)} 攻撃 <b>${weapon.atk}</b> 会心 <b>${weapon.aff}%</b> ${element}</div>`;
+    const stats = weaponStats(build, weapon);
+    extra += `<div class="mh-sim-meta">${idx.weaponTypes.get(weapon.t)} ${rarityPill(weapon.r)} 攻撃 <b>${stats.atk}</b> 会心 <b>${stats.aff}%</b> ${elementText(stats.element)} ${slotText(stats.slots)}</div>`;
     if (weapon.art) {
+      const elementType = build.wEl || (weapon.el ? weapon.el[0] : "none");
       extra += `
         <div class="mh-sim-sub">
           <label class="mh-field"><span>種別</span>
@@ -1765,8 +1793,26 @@ function simWeaponRow(build, result) {
               <option value="gogma" ${result.mode === "gogma" ? "selected" : ""}>巨戟アーティア（シリーズ/グループスキル）</option>
             </select>
           </label>
-          <label class="mh-field"><span>攻撃力（ボーナス込み）</span><input class="mh-num" type="number" data-sim="watk" value="${escapeHtml(build.wAtk)}" placeholder="${weapon.atk}" /></label>
-          <label class="mh-field"><span>会心率%</span><input class="mh-num" type="number" data-sim="waff" value="${escapeHtml(build.wAff)}" placeholder="${weapon.aff}" /></label>
+        </div>
+        <div class="mh-sim-custom">
+          <div class="mh-sim-custom-head">ゲーム画面の値を入力 <small>空欄はデータの初期値（${weapon.atk} / ${weapon.aff}% / ${escapeHtml(elementText(weapon.el ? { type: weapon.el[0], value: weapon.el[1] } : null))} / ${slotText(weapon.sl)}）</small></div>
+          <div class="mh-sim-sub">
+            <label class="mh-field"><span>攻撃力</span><input class="mh-num" type="number" inputmode="numeric" data-sim="watk" value="${escapeHtml(build.wAtk)}" placeholder="${weapon.atk}" /></label>
+            <label class="mh-field"><span>会心率%</span><input class="mh-num" type="number" inputmode="numeric" data-sim="waff" value="${escapeHtml(build.wAff)}" placeholder="${weapon.aff}" /></label>
+            <label class="mh-field"><span>属性</span>
+              <select data-sim="wel">
+                <option value="none" ${elementType === "none" ? "selected" : ""}>無属性</option>
+                ${ELEMENT_ORDER.filter((el) => el !== "none").map((el) => `<option value="${el}" ${elementType === el ? "selected" : ""}>${ELEMENT_LABELS[el]}</option>`).join("")}
+              </select>
+            </label>
+            ${elementType !== "none" ? `<label class="mh-field"><span>属性値</span><input class="mh-num" type="number" inputmode="numeric" data-sim="welv" value="${escapeHtml(build.wElv)}" placeholder="${weapon.el?.[0] === elementType ? weapon.el[1] : 0}" /></label>` : ""}
+            ${[0, 1, 2].map((i) => `
+              <label class="mh-field"><span>スロット${i + 1}</span>
+                <select data-sim="wslot" data-index="${i}">
+                  ${[0, 1, 2, 3].map((lv) => `<option value="${lv}" ${slotAt(build, weapon, i) === lv ? "selected" : ""}>${lv ? `Lv${lv}` : "なし"}</option>`).join("")}
+                </select>
+              </label>`).join("")}
+          </div>
         </div>`;
       if (result.mode === "gogma") {
         const options = artianSkillOptions();
@@ -1787,7 +1833,7 @@ function simWeaponRow(build, result) {
       const skills = Object.entries(weapon.sk);
       if (skills.length) extra += `<div class="mh-sim-sub">${skillList(weapon.sk)}</div>`;
     }
-    extra += decoSelectors(weaponSlots(build, weapon).map((lv) => ({ on: "weapon", lv })), build.wDecos, "wdeco");
+    extra += decoSelectors(weaponStats(build, weapon).slots.map((lv) => ({ on: "weapon", lv })), build.wDecos, "wdeco");
   }
   return `<div class="mh-sim-row">${simSlotHead("武器", weapon?.n, extra, "weapon")}</div>`;
 }
@@ -1880,8 +1926,9 @@ function decoOptions(on, maxLevel, selected) {
 function simResult(result) {
   const build = simBuild();
   const weapon = result.weapon;
-  const atk = build.wAtk !== "" && weapon?.art ? Number(build.wAtk) : weapon?.atk;
-  const aff = build.wAff !== "" && weapon?.art ? Number(build.wAff) : weapon?.aff;
+  const stats = weaponStats(build, weapon);
+  const atk = stats?.atk;
+  const aff = stats?.aff;
   const owned = profile().owned;
   const materials = [...result.needed.entries()].map(([itemId, need]) => ({ itemId, item: idx.items.get(itemId), need, owned: owned[itemId] || 0 }));
   return `
@@ -1890,11 +1937,12 @@ function simResult(result) {
       <dl class="mh-sim-stats">
         <div><dt>攻撃力</dt><dd>${atk ?? "-"}</dd></div>
         <div><dt>会心率</dt><dd>${aff ?? 0}%</dd></div>
-        <div><dt>属性</dt><dd>${weapon?.el ? `${ELEMENT_LABELS[weapon.el[0]] || weapon.el[0]} ${weapon.el[1]}` : "-"}</dd></div>
-        <div><dt>防御力</dt><dd>${result.defense}<small>（強化最大 ${result.defenseMax}）</small></dd></div>
+        <div><dt>属性</dt><dd>${weapon ? escapeHtml(elementText(stats.element)) : "-"}</dd></div>
+        <div><dt>防御力${build.defIn !== "" ? "（入力）" : ""}</dt><dd>${build.defIn !== "" ? Number(build.defIn) : result.defense}<small>初期 ${result.defense}／強化最大 ${result.defenseMax}</small></dd></div>
         ${RESIST_LABELS.map((label, i) => `<div><dt>${label}耐性</dt><dd class="${result.resist[i] < 0 ? "mh-minus" : ""}">${result.resist[i]}</dd></div>`).join("")}
       </dl>
-      <p class="mh-note">攻撃力・会心率は武器の値です（スキルの効果は含みません）。防御力は防具の初期値の合計です。</p>
+      <label class="mh-field mh-def-input"><span>防御力（強化後の値をゲーム画面から入力・空欄で初期値）</span><input class="mh-num" type="number" inputmode="numeric" data-sim="defin" value="${escapeHtml(build.defIn)}" placeholder="${result.defense}" /></label>
+      <p class="mh-note">攻撃力・会心率・属性は武器の値です（スキルの効果は含みません）。アーティアは武器欄でゲーム画面の値を入力できます。</p>
     </div>
     <div class="panel">
       <h2>発動スキル <small>${result.skillRows.length}件</small></h2>
@@ -2027,8 +2075,7 @@ function onSimClick(action, button) {
     const id = button.dataset.id;
     if (simPick === "weapon") {
       build.w = id;
-      build.wMode = "";
-      build.wDecos = [];
+      Object.assign(build, { wMode: "", wDecos: [], wAtk: "", wAff: "", wEl: "", wElv: "", wSlots: [] });
     } else if (simPick === "charm") {
       build.c = id;
       if (id === CUSTOM_CHARM && !build.cSlots.length) build.cSlots = [["a", 1]];
@@ -2091,6 +2138,19 @@ function onSimChange(field) {
   if (key === "wmode") build.wMode = value;
   else if (key === "watk") build.wAtk = value;
   else if (key === "waff") build.wAff = value;
+  else if (key === "wel") {
+    build.wEl = value;
+    build.wElv = "";
+  } else if (key === "welv") build.wElv = value;
+  else if (key === "defin") build.defIn = value;
+  else if (key === "wslot") {
+    const weapon = build.w && idx.weapons.get(build.w);
+    const slots = build.wSlots.length === 3 ? [...build.wSlots] : [...weaponSlots(build, weapon)];
+    while (slots.length < 3) slots.push(0);
+    slots[index] = Number(value);
+    build.wSlots = slots.slice(0, 3);
+    build.wDecos = [];
+  }
   else if (key === "gseries") build.gogma.series = value;
   else if (key === "ggroup") build.gogma.group = value;
   else if (key === "wdeco") build.wDecos[index] = value || null;

@@ -1195,3 +1195,38 @@
     padding-left: 0;
   }
 }
+
+.mh-sim-custom {
+  display: grid;
+  gap: 8px;
+  margin-left: 52px;
+  border: 1px dashed rgba(245, 176, 65, 0.45);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.mh-sim-custom .mh-sim-sub {
+  padding-left: 0;
+}
+
+.mh-sim-custom-head {
+  color: var(--blue);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.mh-sim-custom-head small {
+  display: block;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.mh-def-input {
+  margin-top: 12px;
+}
+
+@media (max-width: 520px) {
+  .mh-sim-custom {
+    margin-left: 0;
+  }
+}
