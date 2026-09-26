@@ -4,7 +4,7 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609260050";
+const VERSION = "202609260052";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const LIMIT_BREAK_URL = `./data/armor-limit-break.json?v=${VERSION}`;
@@ -572,6 +572,10 @@ async function onClick(event) {
   if (action === "import-dismiss") {
     pendingImport = null;
     renderAll();
+    return;
+  }
+  if (action === "skill-popup") {
+    openSkillPopup(button.dataset.id, Number(button.dataset.lv) || 0);
     return;
   }
   if (action === "armor-detail") {
@@ -1351,6 +1355,32 @@ function armorCard(set) {
 }
 
 // 防具の詳細（性能・スキル・生産・強化の段階・限界突破）
+// スキル名を押したときのポップアップ（効果と付けられる装備）
+function openSkillPopup(skillId, level) {
+  const skill = data.skills[skillId];
+  if (!skill) return;
+  let dialog = document.querySelector("[data-role='skill-popup']");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.className = "mh-dialog mh-detail mh-skill-popup";
+    dialog.dataset.role = "skill-popup";
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close(); // 外側を押したら閉じる
+    });
+    app.appendChild(dialog);
+  }
+  const src = skillSources().get(skillId) || { weapons: [], pieces: [], decos: [], charms: [], sets: [] };
+  dialog.innerHTML = `
+    <div class="mh-dialog-head">
+      <b>スキルの内容${level ? `（この装備は Lv${level}）` : ""}</b>
+      <button type="button" class="mh-btn small" data-action="detail-close">閉じる</button>
+    </div>
+    <div class="mh-detail-body">${skillCard({ id: skillId, skill, src }, level)}</div>
+  `;
+  if (!dialog.open) dialog.showModal();
+  dialog.querySelector(".mh-detail-body").scrollTop = 0;
+}
+
 function openArmorDetail(pieceId) {
   const piece = idx.pieces.get(pieceId);
   if (!piece) return;
@@ -1384,7 +1414,7 @@ function armorDetailHtml(piece) {
   }).join("");
   const bonuses = [set.sb, set.gb].filter(Boolean).map(([id, ranks]) => {
     const skill = data.skills[id];
-    return `<li><b>${escapeHtml(skill?.n || "?")}</b>（${skill?.k === "group" ? "グループ" : "シリーズ"}）${ranks.map(([pieces, level]) => {
+    return `<li><button type="button" class="mh-skill-link" data-action="skill-popup" data-id="${id}">${escapeHtml(skill?.n || "?")}</button>（${skill?.k === "group" ? "グループ" : "シリーズ"}）${ranks.map(([pieces, level]) => {
       const rk = skill?.rk?.find(([lv]) => lv === level);
       return `<div class="mh-sim-desc"><span class="mh-piece-count">${pieces}部位</span>${escapeHtml(rk?.[1] || "")} ${escapeHtml(rk?.[2] || "")}</div>`;
     }).join("")}</li>`;
@@ -1406,7 +1436,7 @@ function armorDetailHtml(piece) {
         ${Object.entries(piece.sk).filter(([id]) => !["set", "group"].includes(data.skills[id]?.k)).map(([id, lv]) => {
           const skill = data.skills[id];
           const rk = skill?.rk?.find(([level]) => level === lv);
-          return `<li><b>${escapeHtml(skill?.n || "?")} Lv${lv}</b><div class="mh-sim-desc">${escapeHtml(rk?.[2] || "")}</div></li>`;
+          return `<li><button type="button" class="mh-skill-link" data-action="skill-popup" data-id="${id}" data-lv="${lv}">${escapeHtml(skill?.n || "?")} Lv${lv}</button><div class="mh-sim-desc">${escapeHtml(rk?.[2] || "")}</div></li>`;
         }).join("") || `<li class="mh-muted">なし</li>`}
         ${bonuses}
       </ul>
@@ -2000,13 +2030,13 @@ function decoRowsHtml(list) {
   return list.map(({ deco, lv }) => `<li><span class="mh-slot-mark">${SLOT_MARKS[deco.lv]}</span>${escapeHtml(deco.n)}<span class="mh-muted">${deco.on === "weapon" ? "武器" : "防具"}・Lv${lv}${Object.keys(deco.sk).length > 1 ? `（${escapeHtml(skillText(deco.sk, true))}）` : ""}</span></li>`).join("");
 }
 
-function skillCard({ id, skill, src }) {
+function skillCard({ id, skill, src }, highlightLevel = 0) {
   const bonus = skill.k === "set" || skill.k === "group";
   const gogma = bonus && gogmaSkillIds().has(id);
   const thresholds = bonus ? bonusThresholds().get(id) : null;
   const levels = (skill.rk || []).map(([level, name, desc]) => {
     const pieces = thresholds?.find(([, lv]) => lv === level)?.[0];
-    return `<li><span class="mh-piece-count">${bonus ? `${pieces ?? "?"}部位` : `Lv${level}`}</span>${name ? `<b>${escapeHtml(name)}</b> ` : ""}${escapeHtml(desc)}</li>`;
+    return `<li class="${highlightLevel && level === highlightLevel ? "is-current" : ""}"><span class="mh-piece-count">${bonus ? `${pieces ?? "?"}部位` : `Lv${level}`}</span>${name ? `<b>${escapeHtml(name)}</b> ` : ""}${escapeHtml(desc)}</li>`;
   }).join("");
   const decos = [...src.decos].sort((a, b) => a.deco.lv - b.deco.lv || a.lv - b.lv);
   const charms = [...src.charms].sort((a, b) => a.lv - b.lv || (a.charm.r || 0) - (b.charm.r || 0));
@@ -2634,7 +2664,7 @@ function simSkillRow(row) {
   return `
     <div class="mh-sim-skill">
       <div class="mh-sim-skill-head">
-        <b>${escapeHtml(row.skill.n)}</b>
+        <button type="button" class="mh-skill-link" data-action="skill-popup" data-id="${row.id}" data-lv="${row.lv}">${escapeHtml(row.skill.n)}</button>
         <span class="mh-level">Lv${row.lv}<small>/${row.skill.max}</small></span>
         <span class="mh-level-bar">${Array.from({ length: row.skill.max }, (_, i) => `<i class="${i < row.lv ? "on" : ""}"></i>`).join("")}</span>
         ${row.over ? `<span class="mh-over">+${row.over} 超過</span>` : ""}
@@ -2649,7 +2679,7 @@ function simBonusRow(row) {
   return `
     <div class="mh-sim-skill ${row.lv ? "" : "is-off"}">
       <div class="mh-sim-skill-head">
-        <b>${escapeHtml(row.skill?.n || "?")}</b>
+        <button type="button" class="mh-skill-link" data-action="skill-popup" data-id="${row.id}">${escapeHtml(row.skill?.n || "?")}</button>
         <span class="pill ${row.skill?.k === "group" ? "purple" : ""}">${row.skill?.k === "group" ? "グループ" : "シリーズ"}</span>
         <span class="mh-level">${row.count}部位</span>
         ${row.lv ? `<span class="mh-done">発動中</span>` : `<span class="mh-muted">未発動</span>`}
@@ -2898,7 +2928,7 @@ function skillList(skills) {
   return `<div class="mh-skills">${entries.map(([id, level]) => {
     const skill = data.skills[id];
     const bonus = skill && (skill.k === "set" || skill.k === "group");
-    return `<span class="mh-skill ${bonus ? "bonus" : ""}">${escapeHtml(skill?.n || "?")}${bonus ? "" : ` Lv${level}`}</span>`;
+    return `<button type="button" class="mh-skill ${bonus ? "bonus" : ""}" data-action="skill-popup" data-id="${id}" data-lv="${bonus ? "" : level}" title="スキルの内容を見る">${escapeHtml(skill?.n || "?")}${bonus ? "" : ` Lv${level}`}</button>`;
   }).join("")}</div>`;
 }
 
