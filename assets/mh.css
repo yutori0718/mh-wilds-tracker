@@ -1611,3 +1611,38 @@
     gap: 4px;
   }
 }
+
+/* スキル一覧 */
+.mh-skill-levels {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.mh-skill-levels .mh-piece-count {
+  margin-right: 6px;
+}
+
+.mh-skill-src {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.mh-skill-src li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.mh-skill-src .mh-slot-mark {
+  font-size: 0.95rem;
+}

@@ -4,7 +4,7 @@
 // 別の端末や友達との受け渡しは「共有URL / 共有コード」で行う。
 
 // 更新時に古いファイルがブラウザに残らないよう、公開ごとに index.html と合わせて変える
-const VERSION = "202609240559";
+const VERSION = "202609260050";
 const DATA_URL = `./data/mh-wilds.json?v=${VERSION}`;
 const ARTIAN_URL = `./data/gogma-artian-skills.json?v=${VERSION}`;
 const LIMIT_BREAK_URL = `./data/armor-limit-break.json?v=${VERSION}`;
@@ -23,6 +23,7 @@ const TABS = [
   { id: "items", label: "素材" },
   { id: "gather", label: "採取ガイド" },
   { id: "monsters", label: "モンスター別ドロップ" },
+  { id: "skills", label: "スキル一覧" },
   { id: "artian", label: "巨戟アーティア" },
   { id: "party", label: "みんな" },
 ];
@@ -135,6 +136,7 @@ const filters = {
   monsters: { id: "", rank: "high", q: "", view: "drop", map: "" },
   artian: { kind: "", q: "" },
   gather: { map: "", q: "" },
+  skills: { kind: "", q: "", decoOnly: false, limit: 40 },
   list: { hideDone: false },
 };
 
@@ -597,7 +599,7 @@ function onInput(event) {
   if (field.dataset.filter) {
     const tabFilters = filters[currentTab];
     tabFilters[field.dataset.filter] = field.type === "checkbox" ? field.checked : field.value;
-    tabFilters.limit = currentTab === "armor" ? 40 : PAGE_SIZE;
+    tabFilters.limit = currentTab === "armor" || currentTab === "skills" ? 40 : PAGE_SIZE;
     renderResults();
     return;
   }
@@ -808,6 +810,7 @@ function renderPanel() {
     monsters: renderMonsterPanel,
     artian: () => filterPanel(artianControls()),
     gather: () => filterPanel(gatherControls()),
+    skills: () => filterPanel(skillControls()),
     party: renderPartyPanel,
   };
   panel.innerHTML = renderers[currentTab]();
@@ -830,6 +833,7 @@ function renderResults() {
     items: itemResults,
     artian: artianResults,
     gather: gatherResults,
+    skills: skillResults,
   };
   results.innerHTML = renderers[currentTab]();
 }
@@ -1909,6 +1913,142 @@ function gatherResults() {
   return `
     ${sections || `<div class="empty">該当する素材がありません。</div>`}
     ${(gathering.tips || []).length ? `<div class="panel"><h2>採取のコツ</h2><ul class="mh-lb-tips">${gathering.tips.map((tip) => `<li>${escapeHtml(tip)}</li>`).join("")}</ul></div>` : ""}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// スキル一覧タブ（全スキルの効果と、付けられる武器・防具・装飾品・護石）
+
+const SKILL_KINDS = [
+  ["weapon", "武器スキル"],
+  ["armor", "防具スキル"],
+  ["set", "シリーズスキル"],
+  ["group", "グループスキル"],
+];
+
+// スキルID -> そのスキルが付く装備の一覧（初回だけ作る）
+function skillSources() {
+  if (skillSources.cache) return skillSources.cache;
+  const map = new Map();
+  const get = (id) => {
+    if (!map.has(id)) map.set(id, { weapons: [], pieces: [], decos: [], charms: [], sets: [] });
+    return map.get(id);
+  };
+  data.weapons.forEach((weapon) => Object.entries(weapon.sk).forEach(([id, lv]) => get(id).weapons.push({ weapon, lv })));
+  data.armor.forEach((set) => {
+    set.pc.forEach((piece) => Object.entries(piece.sk).forEach(([id, lv]) => {
+      if (["set", "group"].includes(data.skills[id]?.k)) return;
+      get(id).pieces.push({ piece, set, lv });
+    }));
+    [set.sb, set.gb].filter(Boolean).forEach(([id]) => get(id).sets.push(set));
+  });
+  data.decorations.forEach((deco) => Object.entries(deco.sk).forEach(([id, lv]) => get(id).decos.push({ deco, lv })));
+  data.charms.forEach((charm) => Object.entries(charm.sk).forEach(([id, lv]) => get(id).charms.push({ charm, lv })));
+  skillSources.cache = map;
+  return map;
+}
+
+// 巨戟アーティアで付けられるシリーズ/グループスキル
+function gogmaSkillIds() {
+  const { series, groups } = artianSkillOptions();
+  return new Set([...series, ...groups].map((entry) => entry.id));
+}
+
+function skillControls() {
+  const f = filters.skills;
+  return `
+    <p class="mh-note mh-wide">全スキルのレベルごとの効果と、そのスキルが付く装飾品・護石・防具・武器の一覧です。</p>
+    <label class="mh-field"><span>種類</span>
+      <select data-filter="kind">
+        <option value="">すべて</option>
+        ${SKILL_KINDS.map(([value, label]) => `<option value="${value}" ${f.kind === value ? "selected" : ""}>${label}</option>`).join("")}
+      </select>
+    </label>
+    ${searchField(f.q, "スキル名・効果・装飾品名で検索")}
+    <label class="mh-check"><input type="checkbox" data-filter="decoOnly" ${f.decoOnly ? "checked" : ""} /> 装飾品で付けられるものだけ</label>
+  `;
+}
+
+function skillResults() {
+  const f = filters.skills;
+  const sources = skillSources();
+  const kindOrder = SKILL_KINDS.map(([value]) => value);
+  const list = Object.entries(data.skills)
+    .map(([id, skill]) => ({ id, skill, src: sources.get(id) || { weapons: [], pieces: [], decos: [], charms: [], sets: [] } }))
+    .filter(({ skill, src }) =>
+      (!f.kind || skill.k === f.kind)
+      && (!f.decoOnly || src.decos.length)
+      && matches(f.q, [skill.n, ...(skill.rk || []).map((rk) => `${rk[1] || ""} ${rk[2]}`), ...src.decos.map(({ deco }) => deco.n)]))
+    .sort((a, b) => kindOrder.indexOf(a.skill.k) - kindOrder.indexOf(b.skill.k)
+      || nameHit(b.skill.n, f.q) - nameHit(a.skill.n, f.q)
+      || a.skill.n.localeCompare(b.skill.n, "ja"));
+  return pagedGrouped(list, skillCard, ({ skill }) => {
+    const label = SKILL_KINDS.find(([value]) => value === skill.k)?.[1] || "その他";
+    return { key: skill.k, label };
+  });
+}
+
+// 検索語がスキル名に含まれるものを先に並べる（完全一致を最優先）
+function nameHit(name, query) {
+  const q = normalize(query).trim();
+  if (!q) return 0;
+  const n = normalize(name);
+  return n === q ? 2 : n.includes(q) ? 1 : 0;
+}
+
+function decoRowsHtml(list) {
+  return list.map(({ deco, lv }) => `<li><span class="mh-slot-mark">${SLOT_MARKS[deco.lv]}</span>${escapeHtml(deco.n)}<span class="mh-muted">${deco.on === "weapon" ? "武器" : "防具"}・Lv${lv}${Object.keys(deco.sk).length > 1 ? `（${escapeHtml(skillText(deco.sk, true))}）` : ""}</span></li>`).join("");
+}
+
+function skillCard({ id, skill, src }) {
+  const bonus = skill.k === "set" || skill.k === "group";
+  const gogma = bonus && gogmaSkillIds().has(id);
+  const thresholds = bonus ? bonusThresholds().get(id) : null;
+  const levels = (skill.rk || []).map(([level, name, desc]) => {
+    const pieces = thresholds?.find(([, lv]) => lv === level)?.[0];
+    return `<li><span class="mh-piece-count">${bonus ? `${pieces ?? "?"}部位` : `Lv${level}`}</span>${name ? `<b>${escapeHtml(name)}</b> ` : ""}${escapeHtml(desc)}</li>`;
+  }).join("");
+  const decos = [...src.decos].sort((a, b) => a.deco.lv - b.deco.lv || a.lv - b.lv);
+  const charms = [...src.charms].sort((a, b) => a.lv - b.lv || (a.charm.r || 0) - (b.charm.r || 0));
+  return `
+    <article class="card mh-card mh-skill-card">
+      <div class="card-body">
+        <div class="mh-card-head">
+          <h3>${escapeHtml(skill.n)}</h3>
+          <div class="meta-row">
+            <span class="pill ${bonus ? "purple" : ""}">${SKILL_KINDS.find(([value]) => value === skill.k)?.[1] || ""}</span>
+            ${bonus ? "" : `<span class="pill">最大Lv${skill.max}</span>`}
+            ${gogma ? `<span class="pill purple">巨戟アーティアで付く</span>` : ""}
+          </div>
+        </div>
+        <ol class="mh-skill-levels">${levels}</ol>
+        ${decos.length ? `
+          <div class="mh-src-block"><div class="mh-label">装飾品</div>
+            <ul class="mh-skill-src">${decoRowsHtml(decos.filter((entry) => Object.keys(entry.deco.sk).length === 1))}</ul>
+            ${decos.some((entry) => Object.keys(entry.deco.sk).length > 1) ? `
+              <details class="mh-details"><summary>複合の装飾品（${decos.filter((entry) => Object.keys(entry.deco.sk).length > 1).length}個）</summary>
+                <ul class="mh-skill-src">${decoRowsHtml(decos.filter((entry) => Object.keys(entry.deco.sk).length > 1))}</ul>
+              </details>` : ""}
+          </div>` : ""}
+        ${charms.length ? `
+          <div class="mh-src-block"><div class="mh-label">護石</div>
+            <ul class="mh-skill-src">${charms.map(({ charm, lv }) => `<li>${rarityPill(charm.r)} ${escapeHtml(charm.n)}<span class="mh-muted">Lv${lv}</span></li>`).join("")}</ul>
+          </div>` : ""}
+        ${bonus && src.sets.length ? `
+          <details class="mh-details"><summary>このスキルの防具（${src.sets.length}シリーズ）</summary>
+            <ul>${src.sets.map((set) => `<li>${rankBadges([armorRankOf(set)])} ${rarityPill(set.r)} ${escapeHtml(set.n)}</li>`).join("")}</ul>
+          </details>` : ""}
+        ${src.pieces.length ? `
+          <details class="mh-details"><summary>防具（${src.pieces.length}部位）</summary>
+            <ul>${src.pieces.sort((a, b) => b.lv - a.lv || a.set.r - b.set.r).map(({ piece, set, lv }) => `<li>${rankBadges([armorRankOf(set)])} <button type="button" class="mh-piece-name" data-action="armor-detail" data-id="${piece.id}">${escapeHtml(piece.n)}</button> <span class="mh-muted">${PIECE_LABELS[piece.p]}・Lv${lv}</span></li>`).join("")}</ul>
+          </details>` : ""}
+        ${src.weapons.length ? `
+          <details class="mh-details"><summary>武器（${src.weapons.length}本）</summary>
+            <ul>${src.weapons.sort((a, b) => b.lv - a.lv || a.weapon.r - b.weapon.r).map(({ weapon, lv }) => `<li>${rarityPill(weapon.r)} ${escapeHtml(weapon.n)} <span class="mh-muted">${idx.weaponTypes.get(weapon.t)}・Lv${lv}</span></li>`).join("")}</ul>
+          </details>` : ""}
+        ${!decos.length && !charms.length && !src.pieces.length && !src.weapons.length && !src.sets.length ? `<div class="mh-muted">付けられる装備が見つかりません</div>` : ""}
+      </div>
+    </article>
   `;
 }
 
